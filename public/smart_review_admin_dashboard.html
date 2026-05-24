@@ -1,0 +1,323 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0F0F1A;color:#E4E1EE;font-family:'Inter',sans-serif;font-size:14px;min-height:600px;overflow-x:hidden;}
+.glass{background:rgba(26,26,46,0.65);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.06);}
+.grad{background:linear-gradient(135deg,#6C63FF 0%,#9B59B6 100%);}
+.grad-t{background:linear-gradient(90deg,#6C63FF 0%,#00D4AA 100%);}
+.glow{box-shadow:0 0 20px rgba(108,99,255,0.25);}
+.glow-sm{box-shadow:0 0 12px rgba(108,99,255,0.18);}
+.sidebar{width:220px;height:600px;position:relative;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.06);}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:12px;font-size:13px;font-weight:600;color:#C7C4D8;cursor:pointer;transition:all .2s;}
+.nav-item:hover{background:rgba(255,255,255,0.05);color:#e3dfff;}
+.nav-item.active{background:linear-gradient(135deg,#6C63FF,#9B59B6);color:#fff;}
+.stat{border-radius:20px;padding:20px;position:relative;overflow:hidden;transition:transform .25s;}
+.stat:hover{transform:translateY(-3px);}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;}
+.pulse{animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+.row-item{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.05);transition:background .2s;}
+.row-item:hover{background:rgba(255,255,255,0.03);}
+.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;}
+.shimmer{background:linear-gradient(90deg,#1f1f2c 25%,#2a2935 50%,#1f1f2c 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;}
+@keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+</style>
+</head>
+<body>
+
+<div style="display:flex;height:600px;overflow:hidden;">
+
+<!-- SIDEBAR -->
+<div class="sidebar glass">
+  <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.06);">
+    <div style="font-size:15px;font-weight:700;background:linear-gradient(135deg,#6C63FF,#9B59B6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">SMART REVIEW</div>
+    <div style="font-size:10px;color:#C7C4D8;margin-top:2px;font-weight:600;">Admin Console</div>
+  </div>
+  <nav style="flex:1;padding:12px 10px;display:flex;flex-direction:column;gap:4px;">
+    <div class="nav-item active">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Users
+    </div>
+    <div class="nav-item">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Courses
+    </div>
+    <div class="nav-item">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Analytics
+    </div>
+    <div class="nav-item" style="position:relative;">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Notifications
+      <span style="margin-left:auto;background:#ffb4ab;color:#690005;font-size:9px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;">3</span>
+    </div>
+    <div class="nav-item">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M12 2v2M12 20v2M20 12h2M2 12h2M17.66 17.66l-1.41-1.41M6.34 6.34L4.93 4.93"/></svg>
+      Settings
+    </div>
+  </nav>
+  <div style="padding:10px;border-top:1px solid rgba(255,255,255,0.06);">
+    <div class="nav-item" style="color:#ffb4ab;">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Sign out
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+
+  <!-- TOPBAR -->
+  <div class="glass" style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;">
+    <div style="flex:1;position:relative;max-width:320px;">
+      <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#C7C4D8;" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input placeholder="Search users, courses…" style="width:100%;background:#0e0e11;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:7px 12px 7px 34px;color:#E4E1EE;font-size:13px;outline:none;font-family:Inter,sans-serif;" />
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#45f1c5;">
+        <span id="pulse-dot" class="pulse" style="width:8px;height:8px;border-radius:50%;background:#45f1c5;display:inline-block;"></span>
+        LIVE
+      </div>
+      <div style="width:34px;height:34px;border-radius:50%;border:2px solid rgba(196,192,255,0.4);background:linear-gradient(135deg,#6C63FF,#9B59B6);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;">A</div>
+    </div>
+  </div>
+
+  <!-- SCROLL AREA -->
+  <div style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;">
+
+    <!-- PAGE HEADER -->
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-size:24px;font-weight:700;color:#E4E1EE;">Dashboard</div>
+        <div style="font-size:12px;color:#C7C4D8;margin-top:3px;" id="date-label"></div>
+      </div>
+      <button onclick="animateRefresh()" style="display:flex;align-items:center;gap:6px;padding:8px 16px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.06);border-radius:12px;color:#C7C4D8;font-size:12px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;transition:color .2s;" onmouseover="this.style.color='#e3dfff'" onmouseout="this.style.color='#C7C4D8'">
+        <svg id="refresh-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Refresh
+      </button>
+    </div>
+
+    <!-- STAT CARDS -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      <!-- card 1 -->
+      <div class="stat glass" style="border:1px solid rgba(227,223,255,0.15);">
+        <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(108,99,255,0.18);filter:blur(20px);pointer-events:none;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#C7C4D8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Total Users</div>
+            <div style="font-size:28px;font-weight:700;color:#E4E1EE;" id="c1">12.8k</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;font-weight:600;color:#45f1c5;">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="7 17 17 7"/><polyline points="7 7 17 7 17 17"/></svg>
+              12.4% vs last month
+            </div>
+          </div>
+          <div style="padding:8px;border-radius:12px;background:rgba(227,223,255,0.07);border:1px solid rgba(227,223,255,0.15);">
+            <svg width="18" height="18" fill="none" stroke="#e3dfff" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+        </div>
+      </div>
+      <!-- card 2 -->
+      <div class="stat glass" style="border:1px solid rgba(69,241,197,0.15);">
+        <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(69,241,197,0.12);filter:blur(20px);pointer-events:none;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#C7C4D8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Total Courses</div>
+            <div style="font-size:28px;font-weight:700;color:#E4E1EE;">142</div>
+            <div style="margin-top:6px;font-size:11px;color:#C7C4D8;">across 8 categories</div>
+          </div>
+          <div style="padding:8px;border-radius:12px;background:rgba(69,241,197,0.07);border:1px solid rgba(69,241,197,0.15);">
+            <svg width="18" height="18" fill="none" stroke="#45f1c5" stroke-width="2" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          </div>
+        </div>
+      </div>
+      <!-- card 3 -->
+      <div class="stat glass" style="border:1px solid rgba(255,183,133,0.15);">
+        <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(255,183,133,0.12);filter:blur(20px);pointer-events:none;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#C7C4D8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Monthly Revenue</div>
+            <div style="font-size:28px;font-weight:700;color:#E4E1EE;">$48,320</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;font-weight:600;color:#45f1c5;">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="7 17 17 7"/><polyline points="7 7 17 7 17 17"/></svg>
+              8.7% vs last month
+            </div>
+          </div>
+          <div style="padding:8px;border-radius:12px;background:rgba(255,183,133,0.07);border:1px solid rgba(255,183,133,0.15);">
+            <svg width="18" height="18" fill="none" stroke="#FFB785" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+        </div>
+      </div>
+      <!-- card 4 -->
+      <div class="stat glass" style="border:1px solid rgba(0,212,170,0.15);">
+        <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(0,212,170,0.10);filter:blur(20px);pointer-events:none;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#C7C4D8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Lessons Completed</div>
+            <div style="font-size:28px;font-weight:700;color:#E4E1EE;">285k</div>
+            <div style="margin-top:6px;font-size:11px;color:#C7C4D8;">all time</div>
+          </div>
+          <div style="padding:8px;border-radius:12px;background:rgba(0,212,170,0.07);border:1px solid rgba(0,212,170,0.15);">
+            <svg width="18" height="18" fill="none" stroke="#45f1c5" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHART + TABLE ROW -->
+    <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:16px;">
+
+      <!-- CHART -->
+      <div class="glass" style="border-radius:20px;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <div style="font-size:16px;font-weight:600;color:#E4E1EE;">Revenue — Last 7 Days</div>
+            <div style="font-size:12px;color:#C7C4D8;margin-top:3px;">Firestore · transactions collection</div>
+          </div>
+          <div style="display:flex;gap:12px;">
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#C7C4D8;"><span style="width:10px;height:10px;background:#6C63FF;border-radius:2px;display:inline-block;"></span>Revenue</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#C7C4D8;"><span style="width:10px;height:10px;background:#00D4AA;border-radius:2px;display:inline-block;"></span>Enrollments</span>
+          </div>
+        </div>
+        <div style="position:relative;width:100%;height:180px;">
+          <canvas id="revenueChart" role="img" aria-label="Area chart of daily revenue and enrollments for the last 7 days">Revenue Mon-Sun: $820 $1340 $980 $1560 $1200 $1890 $2100</canvas>
+        </div>
+      </div>
+
+      <!-- TOP PERFORMERS -->
+      <div class="glass" style="border-radius:20px;overflow:hidden;">
+        <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:16px;font-weight:600;color:#E4E1EE;">Top XP Earners</div>
+          <div style="font-size:12px;color:#C7C4D8;margin-top:3px;">This week · Realtime</div>
+        </div>
+        <div>
+          <div class="row-item">
+            <div class="avatar" style="background:linear-gradient(135deg,#fbe189,#FFB785);">🥇</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;color:#E4E1EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Hoàng Tuấn</div>
+              <div style="font-size:11px;color:#C7C4D8;">hoang@example.com</div>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#45f1c5;">12.2k XP</div>
+          </div>
+          <div class="row-item">
+            <div class="avatar" style="background:linear-gradient(135deg,#e0e0e0,#b0b0b0);">🥈</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;color:#E4E1EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Linh Nguyễn</div>
+              <div style="font-size:11px;color:#C7C4D8;">linh@example.com</div>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#45f1c5;">8.45k XP</div>
+          </div>
+          <div class="row-item">
+            <div class="avatar" style="background:linear-gradient(135deg,#dda87f,#cd7f32);">🥉</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;color:#E4E1EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Mai Văn</div>
+              <div style="font-size:11px;color:#C7C4D8;">mai@example.com</div>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#45f1c5;">7.9k XP</div>
+          </div>
+          <div class="row-item">
+            <div class="avatar" style="background:linear-gradient(135deg,#6C63FF,#9B59B6);">TĐ</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;color:#E4E1EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Thành Đức</div>
+              <div style="font-size:11px;color:#C7C4D8;">thanh@example.com</div>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#45f1c5;">6.5k XP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECENT USERS TABLE -->
+    <div class="glass" style="border-radius:20px;overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div>
+          <div style="font-size:16px;font-weight:600;color:#E4E1EE;">Recent Sign-ups</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+            <span id="realtime-dot" class="pulse" style="width:6px;height:6px;border-radius:50%;background:#45f1c5;display:inline-block;"></span>
+            <span style="font-size:11px;color:#C7C4D8;">Realtime · onSnapshot · 5 newest</span>
+          </div>
+        </div>
+        <button style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#e3dfff;background:none;border:none;cursor:pointer;font-family:Inter,sans-serif;">
+          View all
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div id="user-table"></div>
+    </div>
+
+  </div><!-- /scroll area -->
+</div><!-- /main -->
+</div><!-- /flex -->
+
+<script>
+document.getElementById('date-label').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+const users=[
+  {name:'Lê Trung Khương',email:'khuong@example.com',xp:'12.2k',streak:14,mins:'5m ago',status:'active',grad:'linear-gradient(135deg,#6C63FF,#9B59B6)',init:'LK'},
+  {name:'Ngô Phạm Viết Long',email:'long@example.com',xp:'8.45k',streak:7,mins:'22m ago',status:'active',grad:'linear-gradient(135deg,#00D4AA,#0F9E7B)',init:'NL'},
+  {name:'Trần Linh Nhi',email:'nhi@example.com',xp:'7.9k',streak:3,mins:'45m ago',status:'active',grad:'linear-gradient(135deg,#FFB785,#FF8C42)',init:'TN'},
+  {name:'Phạm Quân Đức',email:'quan@example.com',xp:'5.8k',streak:0,mins:'1h ago',status:'inactive',grad:'linear-gradient(135deg,#888,#555)',init:'PQ'},
+  {name:'Nguyễn Mai Vy',email:'vy@example.com',xp:'4.2k',streak:2,mins:'2h ago',status:'active',grad:'linear-gradient(135deg,#45f1c5,#00A878)',init:'NV'},
+];
+
+const tbl=document.getElementById('user-table');
+tbl.innerHTML=users.map(u=>`
+  <div class="row-item" style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.04);">
+    <div class="avatar" style="background:${u.grad};">${u.init}</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:600;color:#E4E1EE;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name}</div>
+      <div style="font-size:11px;color:#C7C4D8;">${u.email}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#45f1c5;min-width:56px;">
+      <svg width="11" height="11" fill="#45f1c5" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      ${u.xp} XP
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#FFB785;min-width:44px;">
+      🔥 ${u.streak}d
+    </div>
+    <div style="font-size:10px;color:#C7C4D8;min-width:50px;text-align:right;">${u.mins}</div>
+    <div style="padding:3px 10px;border-radius:999px;font-size:10px;font-weight:700;${u.status==='active'?'background:rgba(69,241,197,0.1);color:#45f1c5;border:1px solid rgba(69,241,197,0.2);':'background:rgba(255,255,255,0.05);color:#888;border:1px solid rgba(255,255,255,0.06);'}">
+      ${u.status}
+    </div>
+  </div>
+`).join('');
+
+const ctx=document.getElementById('revenueChart').getContext('2d');
+new Chart(ctx,{
+  type:'line',
+  data:{
+    labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+    datasets:[
+      {label:'Revenue',data:[820,1340,980,1560,1200,1890,2100],borderColor:'#6C63FF',borderWidth:2,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:'#6C63FF',tension:.4,fill:true,backgroundColor:(c)=>{const g=c.chart.ctx.createLinearGradient(0,0,0,180);g.addColorStop(0,'rgba(108,99,255,0.28)');g.addColorStop(1,'rgba(108,99,255,0)');return g;}},
+      {label:'Enrollments',data:[92,150,110,175,135,212,236],borderColor:'#00D4AA',borderWidth:2,pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:'#00D4AA',tension:.4,fill:true,backgroundColor:(c)=>{const g=c.chart.ctx.createLinearGradient(0,0,0,180);g.addColorStop(0,'rgba(0,212,170,0.2)');g.addColorStop(1,'rgba(0,212,170,0)');return g;},yAxisID:'y2'},
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(26,26,46,0.95)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,titleColor:'#C7C4D8',bodyColor:'#E4E1EE',callbacks:{label:(c)=>c.datasetIndex===0?`$${c.raw.toLocaleString()}`:`${c.raw} enrolments`}}},
+    scales:{
+      x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#C7C4D8',font:{size:11}}},
+      y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#C7C4D8',font:{size:11},callback:v=>'$'+v},position:'left'},
+      y2:{display:false}
+    }
+  }
+});
+
+function animateRefresh(){
+  const ic=document.getElementById('refresh-icon');
+  ic.style.transition='transform .6s';ic.style.transform='rotate(360deg)';
+  setTimeout(()=>{ic.style.transition='none';ic.style.transform='rotate(0)';},700);
+}
+</script>
+</html>

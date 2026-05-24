@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SMART REVIEW - Error</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-lowest": "#0e0e11",
+                        "glass-border": "rgba(255, 255, 255, 0.05)",
+                        "tertiary-fixed-dim": "#ddc570",
+                        "on-tertiary-container": "#625103",
+                        "surface-container": "#201f23",
+                        "secondary": "#45f1c5",
+                        "surface-variant": "#353438",
+                        "outline-variant": "#47464f",
+                        "surface-container-low": "#1c1b1f",
+                        "on-tertiary-fixed-variant": "#554500",
+                        "inverse-on-surface": "#313034",
+                        "on-error-container": "#ffdad6",
+                        "inverse-surface": "#e5e1e7",
+                        "tertiary-fixed": "#fbe189",
+                        "on-surface": "#E4E1EE",
+                        "primary-fixed": "#e3dfff",
+                        "error": "#ffb4ab",
+                        "surface-tint": "#c4c0ff",
+                        "inverse-primary": "#5b5890",
+                        "tertiary-container": "#ddc570",
+                        "surface-container-highest": "#353438",
+                        "primary-container": "#c4c0ff",
+                        "on-secondary-container": "#005643",
+                        "on-primary-fixed": "#171348",
+                        "on-tertiary-fixed": "#221b00",
+                        "on-primary-container": "#4f4c83",
+                        "surface-bright": "#3a383d",
+                        "surface": "#13121B",
+                        "primary-gradient": "linear-gradient(135deg, #6C63FF 0%, #9B59B6 100%)",
+                        "on-secondary-fixed": "#002118",
+                        "on-secondary-fixed-variant": "#00513f",
+                        "primary-glow": "rgba(108, 99, 255, 0.25)",
+                        "secondary-fixed-dim": "#27dfb4",
+                        "on-primary-fixed-variant": "#434076",
+                        "secondary-container": "#00d4aa",
+                        "on-tertiary": "#3b2f00",
+                        "on-primary": "#2d2a5e",
+                        "surface-container-high": "#2a292d",
+                        "on-surface-variant": "#c8c5d0",
+                        "primary-fixed-dim": "#c4c0ff",
+                        "primary": "#e3dfff",
+                        "glass-bg": "rgba(26, 26, 46, 0.6)",
+                        "progress-gradient": "linear-gradient(90deg, #6C63FF 0%, #00D4AA 100%)",
+                        "outline": "#B0AEC0",
+                        "tertiary": "#FFB785",
+                        "on-background": "#e5e1e7",
+                        "background": "#0F0F1A",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "surface-dim": "#131317",
+                        "on-secondary": "#00382b",
+                        "secondary-fixed": "#55fcd0"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "md": "16px",
+                        "sm": "8px",
+                        "xs": "4px",
+                        "gutter": "16px",
+                        "xl": "32px",
+                        "2xl": "48px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "label-lg": ["Inter", "sans-serif"],
+                        "headline-sm": ["Inter", "sans-serif"],
+                        "headline-md": ["Inter", "sans-serif"],
+                        "label-sm": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "label-md": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"],
+                        "body-sm": ["Inter", "sans-serif"],
+                        "headline-lg": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "2%", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "letterSpacing": "0", "fontWeight": "600" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-1%", "fontWeight": "600" }],
+                        "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "5%", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "4%", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "letterSpacing": "0", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-2%", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md antialiased min-h-screen flex flex-col selection:bg-primary selection:text-on-primary">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 border-b border-glass-border shadow-primary-glow bg-glass-bg backdrop-blur-xl">
+<div class="flex justify-between items-center px-gutter py-md w-full max-w-[1200px] mx-auto">
+<!-- Leading Avatar -->
+<button class="relative w-10 h-10 rounded-full border-2 border-primary-container overflow-hidden hover:opacity-80 transition-opacity active:scale-95 flex-shrink-0 bg-surface-container-highest">
+<img alt="User profile photo" class="w-full h-full object-cover" data-alt="A futuristic avatar placeholder depicting a stylized, neon-lit silhouette of a person against a deep purple vaporwave background. The lighting is high-contrast, glowing slightly to match the app's dark tech-forward theme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDCv-HmFfxMAKvjF9EmPjsvzSysa-B99n1EVlcXhPxDBBsQDWIMra4sQIEzosMHmXYLV_PnDbXRX9sA7PrFjP047_Ns3hXOd66lqgRDmdnuASBp1rRAwFLDoSJ3mEbcWD61P3CNkF7nOx4VKMdt109hd30nz-WLyeMTIfovTB7i1Eo1PwExMhCRS5uiuPvolFbqhH-arcfFsrQJVv_NWmfRmjz3rQbfRAuwEsz6Rl-BdohTjq5LY-Ej_COadBYflrKmDT9IoIosDwg"/>
+</button>
+<!-- Headline Brand -->
+<h1 class="font-headline-md text-headline-md font-bold text-transparent bg-clip-text bg-primary-gradient truncate px-sm">
+                SMART REVIEW
+            </h1>
+<!-- Trailing Icon -->
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-primary hover:bg-white/5 active:scale-95 transition-all flex-shrink-0">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas (Error State) -->
+<main class="flex-grow flex items-center justify-center px-gutter pt-[80px] pb-safe w-full max-w-[1200px] mx-auto">
+<!-- Glassmorphism Error Card -->
+<div class="w-full max-w-[400px] bg-glass-bg backdrop-blur-[12px] border border-glass-border rounded-[20px] p-lg flex flex-col items-center text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden">
+<!-- Ambient Card Glow Background -->
+<div class="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1/2 bg-primary-glow rounded-full blur-[50px] pointer-events-none opacity-50"></div>
+<!-- Illustration -->
+<div class="relative w-48 h-48 mb-lg mt-sm flex-shrink-0 z-10">
+<img alt="Error Illustration" class="w-full h-full object-cover rounded-full border border-glass-border mix-blend-screen opacity-90 shadow-primary-glow" data-alt="A stylized 3D 3D render in a high-energy retro-vaporwave aesthetic featuring a sleek but distinctly shattered electronic tablet or glowing data cube floating in a void. The broken fragments emit a vibrant, glitchy neon purple and teal light against a deep, pitch-black backdrop. The mood is momentarily disruptive but visually stunning, maintaining a premium, tech-forward gamification style with intense luminosity and glassmorphism transparency." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDftMQizqRDT1bZYezf5JtWH0qIEQj9Zc5FMLm4vACF0sJia_cPOnU9Ixg--fh9CY0SHJlBdKy6CJmlloCtxISbfPFBXvdwWE8rezhSHyvwlaSYSPRA0F8EFmZR_2obQhDI3kjEm91DUQVIMOAvyZHHkEVAArpeGgj05MUbNnoKMscCgfqiTV7bFy09WW5cqCPPs2bnyCASibpbqie2xBK3NHvp6h8NCHUpG3GJthiY0a0qzZ_oMFEj-rkQX3GDaVkCy8xx-fIExg0"/>
+</div>
+<!-- Typography -->
+<h2 class="font-headline-md text-headline-md text-on-surface mb-sm z-10">
+                Something went wrong
+            </h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-xl z-10 px-sm">
+                We couldn't load the content right now. Please check your connection and try again.
+            </p>
+<!-- Primary Action Button -->
+<button class="w-full relative group z-10 hover:opacity-90 active:scale-95 transition-all duration-200">
+<!-- Button Glow -->
+<div class="absolute -inset-0.5 bg-primary-glow rounded-[16px] blur-sm opacity-100 group-hover:opacity-100 transition duration-200"></div>
+<!-- Button Surface -->
+<div class="relative w-full py-md px-lg rounded-[16px] bg-primary-gradient flex items-center justify-center gap-sm">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 0;">refresh</span>
+<span class="font-label-lg text-label-lg text-white font-bold tracking-wide">
+                        Retry
+                    </span>
+</div>
+</button>
+<!-- Secondary Action (Optional recovery path for UX) -->
+<button class="mt-md px-lg py-sm rounded-full bg-white/5 border-2 border-primary/20 text-primary font-label-md text-label-md hover:bg-white/10 active:scale-95 transition-all z-10">
+                Return to Dashboard
+            </button>
+</div>
+</main>
+</body></html>
