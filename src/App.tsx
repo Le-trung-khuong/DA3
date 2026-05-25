@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import LayoutAdmin from './layout/LayoutAdmin';
+import Login from './pages/admin/Login';
 
 // Các page đã có
 import UserListAdmin from './pages/admin/users/UserListAdmin';
@@ -26,6 +27,7 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/admin/login" element={<Login />} />
           <Route path="/" element={<LayoutAdmin />}>
             {/* Mặc định redirect đến dashboard (tạm dùng UserListAdmin hoặc Placeholder) */}
             <Route index element={<PlaceholderPage title="Dashboard" />} />

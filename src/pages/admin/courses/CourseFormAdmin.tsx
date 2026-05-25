@@ -8,7 +8,7 @@
  *   /admin/courses/new       → tạo mới
  *   /admin/courses/:courseId/edit → chỉnh sửa
  *
- * Dependencies: firebase  lucide-react
+ * Dependencies: firebase, lucide-react
  */
 
 "use client";
@@ -22,8 +22,16 @@ import React, {
   type DragEvent,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import {
+  doc,
+  updateDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../../../utils/config";
 
-// ─── Import custom hooks từ thư mục hooks (không định nghĩa lại) ─────────────
+// ─── Import custom hooks từ thư mục hooks ─────────────────────────────
 import { useDocument } from "../../../hooks/useFirestore";
 
 // ─── Lucide icons ────────────────────────────────────────────────────────────
@@ -54,6 +62,7 @@ import {
   Layers,
   Zap,
   Info,
+  PauseCircle,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -161,7 +170,7 @@ const defaultForm = (): CourseFormData => ({
   status: "draft",
   thumbnailUrl: "",
   totalDurationHours: 0,
-  language: "Vietnamese",
+  language: "English",
   tags: [],
   modules: [emptyModule(1)],
 });
@@ -256,7 +265,7 @@ function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement |
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// THUMBNAIL UPLOADER
+// THUMBNAIL UPLOADER (Cloudinary)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ThumbnailUploaderProps {
@@ -271,62 +280,59 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
-  if (!file.type.startsWith("image/")) return;
-  
-  setUploading(true);
-  setProgress(0);
+    if (!file.type.startsWith("image/")) return;
 
-  // Tạo FormData để gửi lên Cloudinary
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-  // (Tuỳ chọn) có thể thêm folder: formData.append("folder", "smart_review/courses");
+    setUploading(true);
+    setProgress(0);
 
-  try {
-    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-    const url = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+    // Tạo FormData để gửi lên Cloudinary
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
-    // Dùng XMLHttpRequest để theo dõi tiến trình (progress)
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url, true);
-    
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        setProgress(percent);
-      }
-    };
+    try {
+      const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
 
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        const response = JSON.parse(xhr.responseText);
-        const imageUrl = response.secure_url; // URL ảnh trên Cloudinary
-        onChange(imageUrl);   // cập nhật vào form
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", uploadUrl, true);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setProgress(percent);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          const response = JSON.parse(xhr.responseText);
+          onChange(response.secure_url);
+          setUploading(false);
+          setProgress(0);
+        } else {
+          console.error("Upload failed:", xhr.statusText);
+          setUploading(false);
+          setProgress(0);
+          alert("Upload ảnh thất bại, vui lòng thử lại.");
+        }
+      };
+
+      xhr.onerror = () => {
+        console.error("Network error");
         setUploading(false);
         setProgress(0);
-      } else {
-        console.error("Upload failed:", xhr.statusText);
-        setUploading(false);
-        setProgress(0);
-        alert("Upload ảnh thất bại, vui lòng thử lại.");
-      }
-    };
+        alert("Lỗi kết nối khi upload ảnh.");
+      };
 
-    xhr.onerror = () => {
-      console.error("Network error");
+      xhr.send(formData);
+    } catch (err) {
+      console.error(err);
       setUploading(false);
       setProgress(0);
-      alert("Lỗi kết nối khi upload ảnh.");
-    };
-
-    xhr.send(formData);
-  } catch (err) {
-    console.error(err);
-    setUploading(false);
-    setProgress(0);
-    alert("Không thể upload ảnh.");
-  }
-};
+      alert("Không thể upload ảnh.");
+    }
+  };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -386,9 +392,6 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
               <p style={{ fontSize: 12, color: "#C7C4D8" }}>
                 or click to upload · 16:9 recommended · PNG / WEBP / JPG
               </p>
-              <p style={{ fontSize: 11, color: "#47464f", marginTop: 6 }}>
-                Uploads to Firebase Storage → courses/thumbnails/
-              </p>
             </div>
           </div>
         )}
@@ -417,7 +420,7 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
           <input
             value={url}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="…or paste a Firebase Storage URL"
+            placeholder="…or paste a Cloudinary / Firebase Storage URL"
             style={{ ...IS, paddingLeft: 32, fontSize: 12 }}
             onFocus={focusBorder}
             onBlur={blurBorder}
@@ -443,7 +446,7 @@ interface LessonEditorProps {
 function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: LessonEditorProps) {
   const [expanded, setExpanded] = useState(false);
   const meta = LESSON_TYPE_META[lesson.type];
-  const Meta = meta.Icon;
+  const MetaIcon = meta.Icon;
 
   return (
     <div
@@ -469,7 +472,7 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
         </span>
 
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-          <Meta size={10} /> {meta.label}
+          <MetaIcon size={10} /> {meta.label}
         </span>
 
         <input
@@ -564,7 +567,7 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
                 <input
                   value={lesson.videoUrl ?? ""}
                   onChange={(e) => onUpdate({ videoUrl: e.target.value })}
-                  placeholder="Firebase Storage URL…"
+                  placeholder="YouTube / Vimeo / Cloudinary URL…"
                   style={{ ...IS, paddingLeft: 28, fontSize: 12 }}
                   onFocus={focusBorder} onBlur={blurBorder}
                 />
@@ -965,32 +968,37 @@ export default function CourseFormAdmin() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [loadingData, setLoadingData] = useState(isEdit);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ msg: string; type: string } | null>(null);
 
-  // ── Load existing course when editing ─────────────────────────────────────
-  const { data: existingCourse, loading: courseLoading } = useDocument<Course>(
-    "courses",
-    courseId ?? "",
-    null as any, // không dùng mock ở đây vì sẽ load thật
-    isEdit ? 800 : 0
-  );
+  // ── Load existing course when editing (dùng useDocument hook) ─────────────
+  const { data: existingCourse, loading: courseLoading } = useDocument<{
+    title: string;
+    description: string;
+    price: number;
+    category: string;
+    level: CourseLevel;
+    status: CourseStatus;
+    thumbnailUrl: string;
+    language: string;
+    tags: string[];
+    modules: Module[];
+  }>("courses", isEdit ? courseId ?? null : null);
 
   useEffect(() => {
     if (!isEdit) return;
-    if (existingCourse) {
-      // Chuyển dữ liệu từ course đã lấy được vào form
+    if (existingCourse && !courseLoading) {
       setForm({
-        title: existingCourse.title,
-        description: existingCourse.description,
-        price: existingCourse.price,
-        category: existingCourse.category,
-        level: existingCourse.level,
-        status: existingCourse.status,
+        title: existingCourse.title || "",
+        description: existingCourse.description || "",
+        price: existingCourse.price || 0,
+        category: existingCourse.category || CATEGORIES[0],
+        level: existingCourse.level || "beginner",
+        status: existingCourse.status || "draft",
         thumbnailUrl: existingCourse.thumbnailUrl || "",
-        totalDurationHours: existingCourse.totalDurationHours,
-        language: existingCourse.language,
-        tags: existingCourse.tags,
-        modules: existingCourse.modules || [emptyModule(1)],
+        totalDurationHours: totalCourseHours(existingCourse.modules || [emptyModule(1)]),
+        language: existingCourse.language || "English",
+        tags: existingCourse.tags || [],
+        modules: existingCourse.modules?.length ? existingCourse.modules : [emptyModule(1)],
       });
       setLoadingData(false);
     } else if (!courseLoading && !existingCourse && isEdit) {
@@ -1010,6 +1018,11 @@ export default function CourseFormAdmin() {
     setTouched((t) => ({ ...t, [key]: true }));
   };
 
+  const showToast = (msg: string, type: "success" | "error" | "info") => {
+    setToastMessage({ msg, type });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
   const handleSubmit = async () => {
     setTouched(Object.fromEntries(Object.keys(form).map((k) => [k, true])));
     const errs = validate(form);
@@ -1019,29 +1032,49 @@ export default function CourseFormAdmin() {
     setSaveState("saving");
 
     const payload = {
-      ...form,
+      title: form.title,
+      description: form.description,
+      price: form.price,
+      category: form.category,
+      level: form.level,
+      status: form.status,
+      thumbnailUrl: form.thumbnailUrl,
+      language: form.language,
+      tags: form.tags,
+      modules: form.modules,
       totalDurationHours: totalCourseHours(form.modules),
+      updatedAt: serverTimestamp(),
     };
 
     try {
-      // ── REAL FIREBASE ─────────────────────────────────────────────────────
-      // if (isEdit && courseId) {
-      //   await updateDoc(doc(db, "courses", courseId), { ...payload, updatedAt: serverTimestamp() });
-      // } else {
-      //   const newRef = await addDoc(collection(db, "courses"), { ...payload, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      //   navigate(`/admin/courses/${newRef.id}`);
-      // }
-      // ── MOCK ─────────────────────────────────────────────────────────────
-      await new Promise((r) => setTimeout(r, 1200));
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 3000);
-      if (!isEdit) {
-        // navigate("/admin/courses/mock-id"); // giả lập
+      if (isEdit && courseId) {
+        // UPDATE existing course
+        const courseRef = doc(db, "courses", courseId);
+        await updateDoc(courseRef, payload);
+        showToast("Course updated successfully!", "success");
+        navigate(`/admin/courses/${courseId}`);
+      } else {
+        // CREATE new course
+        const newCourseRef = await addDoc(collection(db, "courses"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+          rating: 0,
+          ratingCount: 0,
+          totalStudents: 0,
+        });
+        showToast("Course created successfully!", "success");
+        navigate(`/admin/courses/${newCourseRef.id}`);
       }
-    } catch {
+    } catch (err: any) {
+      console.error("Save error:", err);
+      showToast(`Error: ${err.message}`, "error");
       setSaveState("error");
-      setTimeout(() => setSaveState("idle"), 4000);
+      setTimeout(() => setSaveState("idle"), 3000);
+      return;
     }
+
+    setSaveState("saved");
+    setTimeout(() => setSaveState("idle"), 3000);
   };
 
   if (loadingData) {
@@ -1069,7 +1102,7 @@ export default function CourseFormAdmin() {
         body{margin:0;}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes fadeDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
         input,select,textarea,button{font-family:Inter,sans-serif;}
         ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-track{background:#0F0F1A;} ::-webkit-scrollbar-thumb{background:#2a292d;border-radius:10px;}
         textarea::-webkit-resizer{display:none;}
@@ -1143,6 +1176,13 @@ export default function CourseFormAdmin() {
           </button>
         </div>
       </header>
+
+      {/* ── TOAST ─────────────────────────────────────────────────────────── */}
+      {toastMessage && (
+        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 99999, background: "rgba(26,26,46,.97)", border: `1px solid ${toastMessage.type === "error" ? "#ffb4ab" : toastMessage.type === "success" ? "#45f1c5" : "#FFB785"}40`, borderRadius: 12, padding: "12px 20px", color: toastMessage.type === "error" ? "#ffb4ab" : toastMessage.type === "success" ? "#45f1c5" : "#FFB785", fontSize: 13, fontWeight: 600, animation: "slideInRight .3s ease" }}>
+          {toastMessage.msg}
+        </div>
+      )}
 
       {/* ── BODY ──────────────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 24px", display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, alignItems: "start" }}>
@@ -1248,7 +1288,7 @@ export default function CourseFormAdmin() {
             </div>
           </Section>
 
-          <Section title="Course Thumbnail" subtitle="Uploads to Firebase Storage · courses/thumbnails/" icon={Image}>
+          <Section title="Course Thumbnail" subtitle="Uploads to Cloudinary · courses/thumbnails/" icon={Image}>
             <ThumbnailUploader url={form.thumbnailUrl} onChange={(u) => setField("thumbnailUrl", u)} />
           </Section>
 

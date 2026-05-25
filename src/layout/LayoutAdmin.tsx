@@ -75,14 +75,8 @@ function useMockAuth(): MockAuth {
     logout:       async () => { alert("Logout called → signOut(auth)"); },
   };
 }
-// In production replace the line below with:
-const useAuth = useMockAuth;
 
-// ─── Mock routing (remove in production) ───────────────────────────────────────
-// function useMockLocation() { return { pathname: "/admin/dashboard" }; }
-// function useMockNavigate() { return (path: string) => { console.log("[navigate]", path); }; }
-// const useLocation  = useMockLocation;
-// const useNavigate  = useMockNavigate;
+import { useAuth } from "../contexts/AuthContext";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // NAV CONFIG
