@@ -1,0 +1,150 @@
+/**
+ * src/layout/LayoutClient.tsx
+ * Layout cho phía người học (course player, catalog)
+ */
+
+"use client";
+
+import React from "react";
+import { Outlet, Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import { BookOpen, LogOut, User, Home, GraduationCap } from "lucide-react";
+
+export default function LayoutClient() {
+  const { currentUser, userProfile, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/");
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0F0F1A", fontFamily: "Inter, sans-serif" }}>
+      {/* Header */}
+      <header style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 40,
+        background: "rgba(15,15,26,0.92)",
+        backdropFilter: "blur(18px)",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+      }}>
+        <div style={{
+          maxWidth: 1280,
+          margin: "0 auto",
+          padding: "12px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 24,
+        }}>
+          {/* Logo */}
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
+            <div style={{
+              width: 32,
+              height: 32,
+              background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>SR</span>
+            </div>
+            <span style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>Smart Review</span>
+          </Link>
+
+          {/* Navigation */}
+          <nav style={{ display: "flex", gap: 24, alignItems: "center" }}>
+            <Link to="/" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+              <Home size={16} /> Home
+            </Link>
+            <Link to="/courses" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+              <BookOpen size={16} /> Courses
+            </Link>
+          </nav>
+
+          {/* User menu */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {currentUser ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}>
+                    {userProfile?.displayName?.[0]?.toUpperCase() || currentUser.email?.[0]?.toUpperCase() || "U"}
+                  </div>
+                  <span style={{ fontSize: 13, color: "#E4E1EE" }}>
+                    {userProfile?.displayName || currentUser.email?.split("@")[0]}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 10,
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#C7C4D8",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                  onMouseOut={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                >
+                  <LogOut size={14} /> Logout
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/admin/login"
+                style={{
+                  background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                  padding: "6px 16px",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#fff",
+                  textDecoration: "none",
+                }}
+              >
+                Sign In
+              </Link>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main>
+        <Outlet />
+      </main>
+
+      {/* Simple Footer */}
+      <footer style={{
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        padding: "24px",
+        textAlign: "center",
+        fontSize: 12,
+        color: "#47464f",
+      }}>
+        © 2025 Smart Review. All rights reserved.
+      </footer>
+    </div>
+  );
+}

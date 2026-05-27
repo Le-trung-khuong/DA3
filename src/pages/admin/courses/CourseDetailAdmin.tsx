@@ -202,6 +202,7 @@ const LESSON_META: Record<LessonType, { label: string; color: string; bg: string
   quiz:       { label: "Quiz",       color: "#45f1c5", bg: "rgba(69,241,197,.12)", Icon: Zap },
   reading:    { label: "Reading",    color: "#FFB785", bg: "rgba(255,183,133,.12)", Icon: BookOpen },
   assignment: { label: "Assignment", color: "#ffb4ab", bg: "rgba(255,180,171,.12)", Icon: FileText },
+  flashcard:  { label: "Flashcard",  color: "#c4c0ff", bg: "rgba(196,192,255,.12)", Icon: Layers },
 };
 
 const STATUS_CFG: Record<CourseStatus, { label: string; color: string; bg: string; border: string; Icon: React.ElementType }> = {
@@ -370,7 +371,12 @@ function CourseInfo({ course, onEdit }: { course: Course; onEdit: () => void }) 
 // ═══════════════════════════════════════════════════════════════════════════
 
 function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
-  const meta = LESSON_META[lesson.type];
+  const meta = LESSON_META[lesson.type] || {
+    label: lesson.type,
+    color: "#C7C4D8",
+    bg: "rgba(255,255,255,.05)",
+    Icon: FileText, // fallback icon
+  };
   const MetaIcon = meta.Icon;
 
   return (

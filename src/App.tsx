@@ -3,7 +3,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import LayoutAdmin from './layout/LayoutAdmin';
 import Login from './pages/admin/Login';
 
-// Các page đã có
+// Admin pages
 import UserListAdmin from './pages/admin/users/UserListAdmin';
 import UserDetailAdmin from './pages/admin/users/UserDetailAdmin';
 import CourseListAdmin from './pages/admin/courses/CourseListAdmin';
@@ -14,7 +14,14 @@ import LeaderboardAdmin from './pages/admin/leaderboard/LeaderboardAdmin';
 import NotificationAdmin from './pages/admin/notifications/NotificationAdmin';
 import CommunityAdmin from './pages/admin/community/CommunityAdmin';
 
-// TẠM THỜI: tạo component fallback cho các trang chưa có
+// Client pages
+import LayoutClient from './layout/LayoutClient';
+import CourseCatalog from './pages/client/CourseCatalog';
+import CourseDetail from './pages/client/CourseDetail';
+import LessonPlayer from './pages/client/LessonPlayer';           // ✅ SỬA: dùng component thật
+import ReviewListAdmin from './pages/admin/reviews/ReviewListAdmin';
+
+// Placeholder cho các trang admin chưa có
 const PlaceholderPage = ({ title }: { title: string }) => (
   <div style={{ padding: 40, textAlign: 'center' }}>
     <h2 style={{ color: '#e3dfff' }}>{title}</h2>
@@ -27,41 +34,50 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Admin Login */}
           <Route path="/admin/login" element={<Login />} />
+
+          {/* Client routes */}
+          <Route element={<LayoutClient />}>
+            <Route index element={<CourseCatalog />} />
+            <Route path="courses" element={<CourseCatalog />} />
+            <Route path="courses/:courseId" element={<CourseDetail />} />
+            <Route path="learn/:courseId/:moduleId/:lessonId" element={<LessonPlayer />} />
+          </Route>
+
+          {/* Admin routes */}
           <Route path="/" element={<LayoutAdmin />}>
-            {/* Mặc định redirect đến dashboard (tạm dùng UserListAdmin hoặc Placeholder) */}
             <Route index element={<PlaceholderPage title="Dashboard" />} />
-            
+            <Route path="admin/dashboard" element={<PlaceholderPage title="Dashboard" />} />
+            <Route path="admin/analytics" element={<PlaceholderPage title="Analytics" />} />
+            <Route path="admin/revenue" element={<PlaceholderPage title="Revenue" />} />
+            <Route path="admin/settings" element={<PlaceholderPage title="Settings" />} />
+
             {/* Users */}
             <Route path="admin/users" element={<UserListAdmin />} />
             <Route path="admin/users/:userId" element={<UserDetailAdmin />} />
-            
+
             {/* Courses */}
             <Route path="admin/courses" element={<CourseListAdmin />} />
             <Route path="admin/courses/:courseId" element={<CourseDetailAdmin />} />
             <Route path="admin/courses/new" element={<CourseFormAdmin />} />
             <Route path="admin/courses/:courseId/edit" element={<CourseFormAdmin />} />
-            
+
+            {/* Reviews */}
+            <Route path="admin/reviews" element={<ReviewListAdmin />} />
+
             {/* Transactions */}
             <Route path="admin/transactions" element={<TransactionListAdmin />} />
-            
+
             {/* Leaderboard */}
             <Route path="admin/leaderboard" element={<LeaderboardAdmin />} />
-            
+
             {/* Notifications */}
             <Route path="admin/notifications" element={<NotificationAdmin />} />
-            
+
             {/* Community */}
             <Route path="admin/community" element={<CommunityAdmin />} />
             <Route path="admin/reports" element={<CommunityAdmin />} />
-            
-            {/* ===== CÁC ROUTE CÒN THIẾU (thêm vào đây) ===== */}
-            <Route path="admin/dashboard" element={<PlaceholderPage title="Dashboard" />} />
-            <Route path="admin/analytics" element={<PlaceholderPage title="Analytics" />} />
-            <Route path="admin/revenue" element={<PlaceholderPage title="Revenue" />} />
-            <Route path="admin/reviews" element={<PlaceholderPage title="Reviews" />} />
-            <Route path="admin/settings" element={<PlaceholderPage title="Settings" />} />
-            {/* Nếu có thêm: admin/notifications, admin/... đã có ở trên */}
           </Route>
         </Routes>
       </BrowserRouter>

@@ -8,7 +8,7 @@
  *   /admin/courses/new       → tạo mới
  *   /admin/courses/:courseId/edit → chỉnh sửa
  *
- * Dependencies: firebase, lucide-react
+ * Dependencies: firebase, lucide-react, react-markdown (cho preview)
  */
 
 "use client";
@@ -18,7 +18,6 @@ import React, {
   useEffect,
   useCallback,
   useRef,
-  type ChangeEvent,
   type DragEvent,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -65,13 +64,18 @@ import {
   PauseCircle,
 } from "lucide-react";
 
+// ─── Editor components cho từng loại lesson ───────────────────────────
+import { QuizEditor } from "../../../components/admin/QuizEditor";
+import { ReadingEditor } from "../../../components/admin/ReadingEditor";
+import { FlashcardEditor } from "../../../components/admin/FlashcardEditor";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
 type CourseLevel   = "beginner" | "intermediate" | "advanced" | "all_levels";
 type CourseStatus  = "published" | "draft" | "archived";
-type LessonType    = "video" | "quiz" | "reading" | "assignment";
+type LessonType    = "video" | "quiz" | "reading" | "flashcard";
 
 interface Lesson {
   id: string;
@@ -81,6 +85,7 @@ interface Lesson {
   videoUrl?: string;
   xpReward: number;
   isFree: boolean;
+  content?: any;      // nội dung chi tiết cho quiz, reading, flashcard
 }
 
 interface Module {
@@ -129,7 +134,7 @@ const LESSON_TYPE_META: Record<LessonType, { label: string; color: string; bg: s
   video:      { label: "Video",      color: "#6C63FF", bg: "rgba(108,99,255,0.14)", Icon: Play },
   quiz:       { label: "Quiz",       color: "#45f1c5", bg: "rgba(69,241,197,0.12)", Icon: Zap },
   reading:    { label: "Reading",    color: "#FFB785", bg: "rgba(255,183,133,0.12)", Icon: BookOpen },
-  assignment: { label: "Assignment", color: "#ffb4ab", bg: "rgba(255,180,171,0.12)", Icon: FileText },
+  flashcard:  { label: "Flashcard",  color: "#c4c0ff", bg: "rgba(196,192,255,0.12)", Icon: Layers },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -150,6 +155,7 @@ const emptyLesson = (): Lesson => ({
   duration: 10,
   xpReward: 50,
   isFree: false,
+  content: undefined,
 });
 
 const emptyModule = (order: number): Module => ({
@@ -207,6 +213,22 @@ const totalLessons = (modules: Module[]) =>
 
 const totalXP = (modules: Module[]) =>
   modules.reduce((s, m) => s + m.lessons.reduce((ls, l) => ls + l.xpReward, 0), 0);
+
+// Helper để loại bỏ tất cả các giá trị undefined (recursive)
+function removeUndefined<T>(obj: T): T {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => removeUndefined(item)) as any;
+  }
+  const cleaned: any = {};
+  for (const key in obj) {
+    const val = obj[key];
+    if (val !== undefined) {
+      cleaned[key] = removeUndefined(val);
+    }
+  }
+  return cleaned;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SHARED INPUT STYLES
@@ -285,7 +307,6 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
     setUploading(true);
     setProgress(0);
 
-    // Tạo FormData để gửi lên Cloudinary
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
@@ -432,7 +453,7 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LESSON EDITOR
+// LESSON EDITOR (đã tích hợp editors cho quiz, reading, flashcard)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface LessonEditorProps {
@@ -447,6 +468,10 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
   const [expanded, setExpanded] = useState(false);
   const meta = LESSON_TYPE_META[lesson.type];
   const MetaIcon = meta.Icon;
+
+  const handleContentChange = (content: any) => {
+    onUpdate({ content });
+  };
 
   return (
     <div
@@ -530,49 +555,71 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
       </div>
 
       {expanded && (
-        <div style={{ padding: "12px 14px 14px", borderTop: "1px solid rgba(255,255,255,.06)", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, animation: "fadeDown .2s ease" }}>
-          <div>
-            <label style={{ ...LABEL }}>Lesson type</label>
-            <select
-              value={lesson.type}
-              onChange={(e) => onUpdate({ type: e.target.value as LessonType })}
-              style={{ ...IS, padding: "7px 10px", fontSize: 12 }}
-              onFocus={focusBorder} onBlur={blurBorder}
-            >
-              {(["video", "quiz", "reading", "assignment"] as LessonType[]).map((t) => (
-                <option key={t} value={t}>{LESSON_TYPE_META[t].label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ ...LABEL }}>XP Reward</label>
-            <div style={{ position: "relative" }}>
-              <Zap size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#45f1c5" }} />
-              <input
-                type="number" min={0} max={1000}
-                value={lesson.xpReward}
-                onChange={(e) => onUpdate({ xpReward: Number(e.target.value) })}
-                style={{ ...IS, paddingLeft: 28, fontSize: 12 }}
-                onFocus={focusBorder} onBlur={blurBorder}
-              />
-            </div>
-          </div>
-
-          {lesson.type === "video" && (
+        <div style={{ padding: "12px 14px 14px", borderTop: "1px solid rgba(255,255,255,.06)", display: "flex", flexDirection: "column", gap: 12, animation: "fadeDown .2s ease" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <div>
-              <label style={{ ...LABEL }}>Video URL</label>
+              <label style={{ ...LABEL }}>Lesson type</label>
+              <select
+                value={lesson.type}
+                onChange={(e) => onUpdate({ type: e.target.value as LessonType, content: undefined })}
+                style={{ ...IS, padding: "7px 10px", fontSize: 12 }}
+                onFocus={focusBorder} onBlur={blurBorder}
+              >
+                {(["video", "quiz", "reading", "flashcard"] as LessonType[]).map((t) => (
+                  <option key={t} value={t}>{LESSON_TYPE_META[t].label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ ...LABEL }}>XP Reward</label>
               <div style={{ position: "relative" }}>
-                <Play size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#6C63FF" }} />
+                <Zap size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#45f1c5" }} />
                 <input
-                  value={lesson.videoUrl ?? ""}
-                  onChange={(e) => onUpdate({ videoUrl: e.target.value })}
-                  placeholder="YouTube / Vimeo / Cloudinary URL…"
+                  type="number" min={0} max={1000}
+                  value={lesson.xpReward}
+                  onChange={(e) => onUpdate({ xpReward: Number(e.target.value) })}
                   style={{ ...IS, paddingLeft: 28, fontSize: 12 }}
                   onFocus={focusBorder} onBlur={blurBorder}
                 />
               </div>
             </div>
+
+            {lesson.type === "video" && (
+              <div>
+                <label style={{ ...LABEL }}>Video URL</label>
+                <div style={{ position: "relative" }}>
+                  <Play size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#6C63FF" }} />
+                  <input
+                    value={lesson.videoUrl ?? ""}
+                    onChange={(e) => onUpdate({ videoUrl: e.target.value })}
+                    placeholder="YouTube / Vimeo / Cloudinary URL…"
+                    style={{ ...IS, paddingLeft: 28, fontSize: 12 }}
+                    onFocus={focusBorder} onBlur={blurBorder}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Content editors */}
+          {lesson.type === "quiz" && (
+            <QuizEditor
+              questions={lesson.content?.data?.questions || []}
+              onChange={(questions) => handleContentChange({ type: "quiz", data: { questions, passingScore: lesson.content?.data?.passingScore || 70 } })}
+            />
+          )}
+          {lesson.type === "reading" && (
+            <ReadingEditor
+              markdown={lesson.content?.data?.markdown || ""}
+              onChange={(markdown) => handleContentChange({ type: "reading", data: { markdown } })}
+            />
+          )}
+          {lesson.type === "flashcard" && (
+            <FlashcardEditor
+              cards={lesson.content?.data?.cards || []}
+              onChange={(cards) => handleContentChange({ type: "flashcard", data: { cards } })}
+            />
           )}
         </div>
       )}
@@ -581,7 +628,7 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DYNAMIC MODULE LIST
+// DYNAMIC MODULE LIST (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface DynamicModuleListProps {
@@ -870,14 +917,6 @@ function CourseSummary({ form }: { form: CourseFormData }) {
 
   const StatusIcon = form.status === "published" ? CheckCircle : form.status === "draft" ? PauseCircle : EyeOff;
 
-  const PauseCircleIcon = ({ size, color }: { size: number; color: string }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="10" y1="15" x2="10" y2="9" />
-      <line x1="14" y1="15" x2="14" y2="9" />
-    </svg>
-  );
-
   return (
     <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ background: "rgba(26,26,46,.7)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 18, overflow: "hidden" }}>
@@ -970,7 +1009,7 @@ export default function CourseFormAdmin() {
   const [loadingData, setLoadingData] = useState(isEdit);
   const [toastMessage, setToastMessage] = useState<{ msg: string; type: string } | null>(null);
 
-  // ── Load existing course when editing (dùng useDocument hook) ─────────────
+  // Load existing course
   const { data: existingCourse, loading: courseLoading } = useDocument<{
     title: string;
     description: string;
@@ -1006,7 +1045,6 @@ export default function CourseFormAdmin() {
     }
   }, [existingCourse, courseLoading, isEdit]);
 
-  // ── Live validation ───────────────────────────────────────────────────────
   useEffect(() => {
     if (Object.keys(touched).length > 0) {
       setErrors(validate(form));
@@ -1023,6 +1061,7 @@ export default function CourseFormAdmin() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Hàm submit chính – đã được sửa để loại bỏ undefined
   const handleSubmit = async () => {
     setTouched(Object.fromEntries(Object.keys(form).map((k) => [k, true])));
     const errs = validate(form);
@@ -1030,6 +1069,9 @@ export default function CourseFormAdmin() {
     if (Object.keys(errs).length > 0) return;
 
     setSaveState("saving");
+
+    // Loại bỏ tất cả các undefined trong modules (bao gồm content, videoUrl, ...)
+    const cleanedModules = removeUndefined(form.modules);
 
     const payload = {
       title: form.title,
@@ -1041,20 +1083,18 @@ export default function CourseFormAdmin() {
       thumbnailUrl: form.thumbnailUrl,
       language: form.language,
       tags: form.tags,
-      modules: form.modules,
+      modules: cleanedModules,
       totalDurationHours: totalCourseHours(form.modules),
       updatedAt: serverTimestamp(),
     };
 
     try {
       if (isEdit && courseId) {
-        // UPDATE existing course
         const courseRef = doc(db, "courses", courseId);
         await updateDoc(courseRef, payload);
         showToast("Course updated successfully!", "success");
         navigate(`/admin/courses/${courseId}`);
       } else {
-        // CREATE new course
         const newCourseRef = await addDoc(collection(db, "courses"), {
           ...payload,
           createdAt: serverTimestamp(),
@@ -1082,9 +1122,7 @@ export default function CourseFormAdmin() {
       <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
           <Loader size={36} color="#6C63FF" style={{ animation: "spin .8s linear infinite" }} />
-          <p style={{ fontSize: 15, fontWeight: 600, color: "#C7C4D8", fontFamily: "Inter,sans-serif" }}>
-            Loading course from Firestore…
-          </p>
+          <p style={{ fontSize: 15, fontWeight: 600, color: "#C7C4D8" }}>Loading course from Firestore…</p>
         </div>
       </div>
     );
@@ -1095,7 +1133,6 @@ export default function CourseFormAdmin() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif", backgroundImage: "radial-gradient(circle at 5% 0%, rgba(108,99,255,.06) 0%, transparent 50%)" }}>
-
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -1108,7 +1145,6 @@ export default function CourseFormAdmin() {
         textarea::-webkit-resizer{display:none;}
       `}</style>
 
-      {/* ── STICKY HEADER ─────────────────────────────────────────────────── */}
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,15,26,.92)", backdropFilter: "blur(18px)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", gap: 16 }}>
           <button onClick={() => navigate("/admin/courses")} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 10, padding: "8px 14px", color: "#C7C4D8", fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "all .2s" }}
@@ -1177,19 +1213,14 @@ export default function CourseFormAdmin() {
         </div>
       </header>
 
-      {/* ── TOAST ─────────────────────────────────────────────────────────── */}
       {toastMessage && (
         <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 99999, background: "rgba(26,26,46,.97)", border: `1px solid ${toastMessage.type === "error" ? "#ffb4ab" : toastMessage.type === "success" ? "#45f1c5" : "#FFB785"}40`, borderRadius: 12, padding: "12px 20px", color: toastMessage.type === "error" ? "#ffb4ab" : toastMessage.type === "success" ? "#45f1c5" : "#FFB785", fontSize: 13, fontWeight: 600, animation: "slideInRight .3s ease" }}>
           {toastMessage.msg}
         </div>
       )}
 
-      {/* ── BODY ──────────────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 24px", display: "grid", gridTemplateColumns: "1fr 320px", gap: 24, alignItems: "start" }}>
-
-        {/* LEFT: Form sections */}
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
           <Section title="Basic Information" subtitle="Core course identity" icon={GraduationCap}>
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               <InputField label="Course Title" icon={BookOpen} error={touched.title ? errors.title : undefined} hint="Max 120 characters · appears in search results">
@@ -1299,12 +1330,9 @@ export default function CourseFormAdmin() {
               error={touched.modules ? errors.modules : undefined}
             />
           </Section>
-
         </div>
 
-        {/* RIGHT: Sticky sidebar */}
         <CourseSummary form={form} />
-
       </div>
     </div>
   );
