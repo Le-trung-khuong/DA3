@@ -2,30 +2,18 @@
  * Smart Review — Admin Leaderboard Manager
  * React + TypeScript + Firebase SDK v9+
  *
- * File: src/pages/admin/LeaderboardAdmin.tsx
+ * File: src/pages/admin/leaderboard/LeaderboardAdmin.tsx
  *
  * Features:
- *   - Realtime top-100 leaderboard (all-time XP + this month)
+ *   - Realtime top-100 leaderboard (all-time XP) from Firestore users collection
  *   - Virtual scroll via windowed list (manual implementation)
- *   - Adjust XP (Firebase transaction → users.xp + xp_logs entry)
- *   - XP history per user (from xp_logs)
- *   - Event control cards (Double XP Week, etc.)
- *   - Event toggle → updates events collection
- *   - Active event badge + countdown timer
+ *   - Adjust XP using existing updateUserXP service (batch + xp_logs)
+ *   - XP history (mock for now, can be replaced with real xp_logs later)
+ *   - Event control cards (mock events – ready for future extension)
  *
  * Firestore:
- *   users           → { uid, displayName, xp, level, ... }
- *   xp_logs         → { userId, amount, reason, createdAt }
- *   events          → { name, type, isActive, multiplier, startDate, endDate }
- *
- * Production split:
- *   hooks/useLeaderboard.ts
- *   hooks/useXPLogs.ts
- *   hooks/useEvents.ts
- *   components/admin/leaderboard/LeaderboardTable.tsx
- *   components/admin/leaderboard/XPAdjustmentModal.tsx
- *   components/admin/leaderboard/XPHistoryModal.tsx
- *   components/admin/leaderboard/EventControlCard.tsx
+ *   users           → { totalXP, displayName, level, currentStreak, role, ... }
+ *   xp_logs         → { userId, amount, reason, ... } (used by updateUserXP)
  *
  * Dependencies: firebase  lucide-react
  */
@@ -36,14 +24,9 @@ import React, {
   useState, useEffect, useCallback, useMemo,
   useRef, type ReactNode,
 } from "react";
-
-// ─── Firebase (uncomment in production) ─────────────────────────────────────
-// import { db } from "@/lib/firebase";
-// import {
-//   collection, query, orderBy, limit, onSnapshot,
-//   doc, runTransaction, addDoc, updateDoc,
-//   serverTimestamp, Timestamp, where, getDocs,
-// } from "firebase/firestore";
+import { orderBy, limit } from "firebase/firestore";
+import { useCollection } from "../../../hooks/useFirestore";
+import { updateUserXP } from "../../../services/adminService";
 
 // ─── Lucide icons ─────────────────────────────────────────────────────────────
 import {
@@ -52,7 +35,7 @@ import {
   RefreshCw, AlertTriangle, Loader, X, Check,
   ChevronDown, Users, Activity, Edit3, BarChart2,
   Sparkles, Shield, Play, Pause, Settings,
-  ChevronLeft, ChevronRight, Info, Save,
+  ChevronLeft, ChevronRight, Info, Save, Search,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -68,7 +51,7 @@ interface LeaderboardUser {
   level: number;
   currentStreak: number;
   role: string;
-  monthlyXP?: number; // computed from xp_logs
+  monthlyXP?: number;
   rank?: number;
   prevRank?: number;
 }
@@ -100,42 +83,12 @@ type LeaderboardTab = "alltime" | "monthly";
 type SortMode = "xp" | "level" | "streak";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MOCK DATA
+// MOCK DATA (for events and xp_logs preview only)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const now = new Date();
 const daysAgo  = (d: number) => new Date(now.getTime() - d * 864e5);
 const daysLater = (d: number) => new Date(now.getTime() + d * 864e5);
-
-const RAW_USERS: Omit<LeaderboardUser, "rank" | "prevRank">[] = [
-  { uid: "u001", displayName: "Hoàng Tuấn",       email: "hoang@gmail.com",    xp: 28400, level: 55, currentStreak: 21, role: "student",    monthlyXP: 3200 },
-  { uid: "u002", displayName: "Sarah Drasner",     email: "sarah@edu.io",       xp: 24800, level: 50, currentStreak: 30, role: "instructor", monthlyXP: 2800 },
-  { uid: "u003", displayName: "Linh Nguyễn",       email: "linh@gmail.com",     xp: 21200, level: 44, currentStreak: 14, role: "student",    monthlyXP: 3800 },
-  { uid: "u004", displayName: "Mod Đình Long",     email: "mod@sr.io",          xp: 19600, level: 42, currentStreak: 18, role: "moderator",  monthlyXP: 2100 },
-  { uid: "u005", displayName: "Võ Thị Hoa",        email: "hoa@edu.io",         xp: 17100, level: 38, currentStreak: 10, role: "instructor", monthlyXP: 1900 },
-  { uid: "u006", displayName: "Lê Trung Khương",   email: "khuong@gmail.com",   xp: 14500, level: 35, currentStreak:  9, role: "student",    monthlyXP: 2600 },
-  { uid: "u007", displayName: "Trần Linh Nhi",     email: "nhi@gmail.com",      xp: 12800, level: 32, currentStreak:  7, role: "student",    monthlyXP: 1500 },
-  { uid: "u008", displayName: "Mai Văn",            email: "mai@example.com",    xp: 11500, level: 30, currentStreak:  5, role: "student",    monthlyXP: 1200 },
-  { uid: "u009", displayName: "Ngô Phạm Viết Long",email: "long@gmail.com",     xp: 10200, level: 28, currentStreak:  3, role: "student",    monthlyXP: 1800 },
-  { uid: "u010", displayName: "Phạm Quân Đức",     email: "quan@gmail.com",     xp:  9400, level: 26, currentStreak:  4, role: "student",    monthlyXP:  900 },
-  { uid: "u011", displayName: "Nguyễn Mai Vy",     email: "vy@gmail.com",       xp:  8200, level: 24, currentStreak:  2, role: "student",    monthlyXP: 1100 },
-  { uid: "u012", displayName: "Bích Nguyễn",       email: "bich@gmail.com",     xp:  7600, level: 22, currentStreak:  6, role: "student",    monthlyXP:  800 },
-  { uid: "u013", displayName: "Lê Minh Huy",       email: "huy@gmail.com",      xp:  6900, level: 20, currentStreak:  1, role: "student",    monthlyXP:  650 },
-  { uid: "u014", displayName: "Cao Thị Lan",       email: "lan@gmail.com",      xp:  5800, level: 18, currentStreak:  0, role: "student",    monthlyXP:  420 },
-  { uid: "u015", displayName: "Đặng Văn Khoa",     email: "khoa@gmail.com",     xp:  4900, level: 16, currentStreak:  8, role: "student",    monthlyXP:  980 },
-  ...Array.from({ length: 85 }, (_, i) => ({
-    uid: `u${String(i + 16).padStart(3, "0")}`,
-    displayName: `Học viên ${i + 16}`,
-    email: `user${i + 16}@example.com`,
-    xp: Math.max(200, 4500 - (i + 1) * 45),
-    level: Math.max(1, 15 - Math.floor(i / 6)),
-    currentStreak: Math.floor(Math.random() * 10),
-    role: "student",
-    monthlyXP: Math.max(50, 900 - (i + 1) * 9),
-  })),
-];
-
-const MOCK_USERS: LeaderboardUser[] = RAW_USERS.map((u, i) => ({ ...u, rank: i + 1, prevRank: i + 1 + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 3) }));
 
 const MOCK_XP_LOGS: XPLogEntry[] = [
   { id: "xl1", userId: "u001", amount:  150, reason: "Hoàn thành bài: Concurrent Rendering",  activityType: "lesson_complete", createdAt: daysAgo(0) },
@@ -255,7 +208,7 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPONENT: XPAdjustmentModal
+// COMPONENT: XPAdjustmentModal (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface XPAdjustmentModalProps {
@@ -292,7 +245,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.72)", backdropFilter:"blur(8px)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ width:"100%", maxWidth:420, background:"rgba(12,11,22,.98)", border:"1px solid rgba(255,255,255,.1)", borderRadius:24, boxShadow:"0 24px 80px rgba(0,0,0,.6)", animation:"scaleIn .2s ease", overflow:"hidden" }}>
-        {/* Header */}
         <div style={{ padding:"18px 22px", borderBottom:"1px solid rgba(255,255,255,.07)", display:"flex", alignItems:"center", gap:12 }}>
           <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,#6C63FF,#9B59B6)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <Zap size={18} color="#fff" />
@@ -324,7 +276,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
             </div>
           </div>
 
-          {/* Active event warning */}
           {activeEvent && (
             <div style={{ display:"flex", gap:8, padding:"10px 12px", background:`${activeEvent.color}14`, border:`1px solid ${activeEvent.color}35`, borderRadius:12 }}>
               <Sparkles size={14} color={activeEvent.color} style={{ flexShrink:0, marginTop:1 }} />
@@ -334,7 +285,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
             </div>
           )}
 
-          {/* Mode toggle */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             {(["add","sub"] as const).map(m => (
               <button key={m} onClick={() => setMode(m)}
@@ -344,7 +294,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
             ))}
           </div>
 
-          {/* Amount input */}
           <div>
             <label style={{ fontSize:11, fontWeight:700, color:"#C7C4D8", letterSpacing:".07em", textTransform:"uppercase", display:"block", marginBottom:7 }}>
               Số XP <span style={{ color:"#ffb4ab" }}>*</span>
@@ -359,7 +308,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
                 style={{ ...IS, paddingLeft:32, fontSize:16, fontWeight:700 }}
                 onFocus={fo} onBlur={bl} />
             </div>
-            {/* Preview new XP */}
             {amount && !isNaN(Number(amount)) && (
               <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:12, color:"#C7C4D8" }}>
                 <span>Sau điều chỉnh:</span>
@@ -371,7 +319,6 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
             )}
           </div>
 
-          {/* Reason */}
           <div>
             <label style={{ fontSize:11, fontWeight:700, color:"#C7C4D8", letterSpacing:".07em", textTransform:"uppercase", display:"block", marginBottom:7 }}>
               Lý do <span style={{ color:"#ffb4ab" }}>*</span>
@@ -383,13 +330,11 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
 
           {error && <p style={{ fontSize:12, color:"#ffb4ab", display:"flex", alignItems:"center", gap:6 }}><AlertTriangle size={13} /> {error}</p>}
 
-          {/* Info */}
           <div style={{ padding:"10px 12px", background:"rgba(108,99,255,.07)", border:"1px solid rgba(108,99,255,.18)", borderRadius:12, fontSize:11, color:"#9B59B6", display:"flex", gap:8, alignItems:"flex-start" }}>
             <Info size={12} style={{ flexShrink:0, marginTop:1 }} />
             <div>Firebase Transaction: cập nhật <code style={{ color:"#c4c0ff" }}>users/{user.uid}/xp</code> đồng thời ghi <code style={{ color:"#c4c0ff" }}>xp_logs</code> để tránh race condition.</div>
           </div>
 
-          {/* Actions */}
           <div style={{ display:"flex", gap:10 }}>
             <button onClick={onClose} style={{ flex:1, padding:"11px", borderRadius:13, fontSize:13, fontWeight:600, cursor:"pointer", background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", color:"#C7C4D8" }}>
               Hủy
@@ -406,7 +351,7 @@ function XPAdjustmentModal({ user, activeEvent, onConfirm, onClose }: XPAdjustme
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPONENT: XPHistoryModal
+// COMPONENT: XPHistoryModal (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function XPHistoryModal({ user, logs, onClose }: { user: LeaderboardUser; logs: XPLogEntry[]; onClose: () => void }) {
@@ -418,7 +363,6 @@ function XPHistoryModal({ user, logs, onClose }: { user: LeaderboardUser; logs: 
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.72)", backdropFilter:"blur(8px)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ width:"100%", maxWidth:560, maxHeight:"88vh", display:"flex", flexDirection:"column", background:"rgba(12,11,22,.98)", border:"1px solid rgba(255,255,255,.08)", borderRadius:24, boxShadow:"0 24px 80px rgba(0,0,0,.6)", animation:"scaleIn .2s ease", overflow:"hidden" }}>
-        {/* Header */}
         <div style={{ padding:"18px 22px", borderBottom:"1px solid rgba(255,255,255,.07)", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
           <div style={{ width:40, height:40, borderRadius:"50%", background:ROLE_GRAD[user.role] ?? ROLE_GRAD.student, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800, color:"#fff" }}>
             {initials(user.displayName)}
@@ -432,7 +376,6 @@ function XPHistoryModal({ user, logs, onClose }: { user: LeaderboardUser; logs: 
           </button>
         </div>
 
-        {/* Summary */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, padding:"14px 22px", borderBottom:"1px solid rgba(255,255,255,.06)", flexShrink:0 }}>
           {[
             { label:"Tổng XP",     val:`+${fmtNum(totalPositive)}`, color:"#45f1c5" },
@@ -446,30 +389,30 @@ function XPHistoryModal({ user, logs, onClose }: { user: LeaderboardUser; logs: 
           ))}
         </div>
 
-        {/* Log list */}
         <div style={{ flex:1, overflowY:"auto", padding:"14px 22px", display:"flex", flexDirection:"column", gap:8 }}>
-          {userLogs.length === 0
-            ? <div style={{ textAlign:"center", padding:40, color:"#47464f" }}><History size={28} style={{ margin:"0 auto 10px" }} /><p>Chưa có giao dịch XP</p></div>
-            : userLogs.map(log => {
-                const cfg = ACTIVITY_CFG[log.activityType] ?? ACTIVITY_CFG.bonus;
-                const isPos = log.amount >= 0;
-                return (
-                  <div key={log.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"11px 13px", background:"rgba(255,255,255,.025)", border:"1px solid rgba(255,255,255,.06)", borderRadius:13 }}>
-                    <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", borderRadius:999, background:cfg.bg, color:cfg.color, fontSize:9, fontWeight:700, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>
-                      {cfg.label}
-                    </span>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, fontWeight:600, color:"#E4E1EE", marginBottom:2 }}>{log.reason}</div>
-                      {log.adminNote && <div style={{ fontSize:11, color:"#C7C4D8", fontStyle:"italic" }}>"{log.adminNote}"</div>}
-                      <div style={{ fontSize:10, color:"#47464f", marginTop:2 }}>{fmtDate(log.createdAt)}</div>
-                    </div>
-                    <div style={{ fontSize:14, fontWeight:800, color:isPos?"#45f1c5":"#ffb4ab", flexShrink:0, whiteSpace:"nowrap" }}>
-                      {isPos ? "+" : ""}{fmtNum(log.amount)}
-                    </div>
+          {userLogs.length === 0 ? (
+            <div style={{ textAlign:"center", padding:40, color:"#47464f" }}><History size={28} style={{ margin:"0 auto 10px" }} /><p>Chưa có giao dịch XP</p></div>
+          ) : (
+            userLogs.map(log => {
+              const cfg = ACTIVITY_CFG[log.activityType] ?? ACTIVITY_CFG.bonus;
+              const isPos = log.amount >= 0;
+              return (
+                <div key={log.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"11px 13px", background:"rgba(255,255,255,.025)", border:"1px solid rgba(255,255,255,.06)", borderRadius:13 }}>
+                  <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 8px", borderRadius:999, background:cfg.bg, color:cfg.color, fontSize:9, fontWeight:700, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>
+                    {cfg.label}
+                  </span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:"#E4E1EE", marginBottom:2 }}>{log.reason}</div>
+                    {log.adminNote && <div style={{ fontSize:11, color:"#C7C4D8", fontStyle:"italic" }}>"{log.adminNote}"</div>}
+                    <div style={{ fontSize:10, color:"#47464f", marginTop:2 }}>{fmtDate(log.createdAt)}</div>
                   </div>
-                );
-              })
-          }
+                  <div style={{ fontSize:14, fontWeight:800, color:isPos?"#45f1c5":"#ffb4ab", flexShrink:0, whiteSpace:"nowrap" }}>
+                    {isPos ? "+" : ""}{fmtNum(log.amount)}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
@@ -477,7 +420,7 @@ function XPHistoryModal({ user, logs, onClose }: { user: LeaderboardUser; logs: 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPONENT: EventControlCard
+// COMPONENT: EventControlCard (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface EventControlCardProps {
@@ -501,7 +444,6 @@ function EventControlCard({ event, onToggle }: EventControlCardProps) {
 
   return (
     <div style={{ background:"rgba(22,20,34,.7)", border:`1px solid ${event.isActive ? event.color + "35" : "rgba(255,255,255,.07)"}`, borderRadius:20, padding:18, backdropFilter:"blur(12px)", boxShadow:event.isActive?`0 0 24px ${event.color}18`:undefined, transition:"all .3s", display:"flex", flexDirection:"column", gap:14 }}>
-      {/* Header row */}
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:42, height:42, borderRadius:13, background:event.isActive?`${event.color}22`:"rgba(255,255,255,.05)", border:`1px solid ${event.isActive?event.color+"40":"rgba(255,255,255,.08)"}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, transition:"all .3s" }}>
@@ -515,7 +457,6 @@ function EventControlCard({ event, onToggle }: EventControlCardProps) {
           </div>
         </div>
 
-        {/* Toggle switch */}
         <button onClick={handleToggle} disabled={loading || isExpired}
           title={event.isActive ? "Tắt sự kiện" : "Bật sự kiện"}
           style={{ position:"relative", width:48, height:26, borderRadius:99, cursor:(loading||isExpired)?"not-allowed":"pointer", background:event.isActive?`linear-gradient(135deg,${event.color},${event.color}99)`:"rgba(255,255,255,.1)", border:`1px solid ${event.isActive?event.color+"60":"rgba(255,255,255,.15)"}`, padding:0, transition:"all .3s", flexShrink:0, boxShadow:event.isActive?`0 0 12px ${event.color}40`:undefined }}>
@@ -526,10 +467,8 @@ function EventControlCard({ event, onToggle }: EventControlCardProps) {
         </button>
       </div>
 
-      {/* Description */}
       <p style={{ fontSize:12, color:"#C7C4D8", lineHeight:1.6, margin:0 }}>{event.description}</p>
 
-      {/* Multiplier badge */}
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
         <div style={{ padding:"4px 12px", borderRadius:999, background:`${event.color}18`, border:`1px solid ${event.color}35`, fontSize:12, fontWeight:800, color:event.color }}>
           ×{event.multiplier} XP
@@ -546,7 +485,6 @@ function EventControlCard({ event, onToggle }: EventControlCardProps) {
         )}
       </div>
 
-      {/* Time range */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
         {[
           { label:"Bắt đầu", val:fmtDate(event.startDate) },
@@ -563,7 +501,7 @@ function EventControlCard({ event, onToggle }: EventControlCardProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPONENT: LeaderboardTable (virtualized)
+// COMPONENT: LeaderboardTable (đã sửa cấu trúc JSX)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const ROW_H = 60;
@@ -590,7 +528,6 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
 
   return (
     <div style={{ background:"rgba(22,20,34,.7)", borderRadius:20, border:"1px solid rgba(255,255,255,.06)", overflow:"hidden" }}>
-      {/* Sticky header */}
       <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed" }}>
         <colgroup>
           <col style={{ width:64 }}/>
@@ -612,7 +549,6 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
         </thead>
       </table>
 
-      {/* Virtualized scroll area */}
       <div ref={containerRef}
         style={{ height: Math.min(VISIBLE * ROW_H, totalH || 240), overflowY:"auto", position:"relative" }}
         onScroll={e => setScrollTop((e.target as HTMLDivElement).scrollTop)}>
@@ -653,7 +589,6 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
                       onMouseOver={e => ((e.currentTarget as HTMLTableRowElement).style.background="rgba(255,255,255,.025)")}
                       onMouseOut={e  => ((e.currentTarget as HTMLTableRowElement).style.background="transparent")}>
 
-                      {/* Rank */}
                       <td style={{ padding:"0 16px", verticalAlign:"middle" }}>
                         {medal ? (
                           <div style={{ width:34, height:34, borderRadius:"50%", background:medal.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, boxShadow:medal.shadow }}>
@@ -671,7 +606,6 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
                         )}
                       </td>
 
-                      {/* User */}
                       <td style={{ padding:"0 16px", verticalAlign:"middle" }}>
                         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                           <div style={{ width:36, height:36, borderRadius:"50%", background:ROLE_GRAD[u.role]??ROLE_GRAD.student, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", flexShrink:0 }}>
@@ -684,14 +618,12 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
                         </div>
                       </td>
 
-                      {/* XP */}
                       <td style={{ padding:"0 16px", verticalAlign:"middle" }}>
                         <div style={{ fontSize:14, fontWeight:800, color:"#FFB785", display:"flex", alignItems:"center", gap:4 }}>
                           <Zap size={12} fill="#FFB785"/>{fmtNum(xpVal)}
                         </div>
                       </td>
 
-                      {/* Level + Streak */}
                       <td style={{ padding:"0 16px", verticalAlign:"middle" }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                           <span style={{ padding:"2px 8px", borderRadius:8, background:"rgba(196,192,255,.12)", color:"#c4c0ff", fontSize:11, fontWeight:800 }}>Lv.{u.level}</span>
@@ -703,14 +635,12 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
                         </div>
                       </td>
 
-                      {/* Role */}
                       <td style={{ padding:"0 16px", verticalAlign:"middle" }}>
                         <span style={{ fontSize:10, fontWeight:700, color:"#C7C4D8", background:"rgba(255,255,255,.06)", padding:"2px 8px", borderRadius:6 }}>
                           {u.role}
                         </span>
                       </td>
 
-                      {/* Actions */}
                       <td style={{ padding:"0 16px", textAlign:"center", verticalAlign:"middle" }}>
                         <div style={{ display:"flex", gap:5, justifyContent:"center" }}>
                           <button title="Điều chỉnh XP" onClick={() => onAdjust(u)}
@@ -736,7 +666,6 @@ function LeaderboardTable({ users, loading, tab, onAdjust, onHistory }: Leaderbo
         )}
       </div>
 
-      {/* Footer count */}
       {!loading && users.length > 0 && (
         <div style={{ padding:"10px 16px", borderTop:"1px solid rgba(255,255,255,.05)", fontSize:11, color:"#C7C4D8", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span>Top <strong style={{ color:"#E4E1EE" }}>{users.length}</strong> người dùng · Virtual scroll</span>
@@ -755,29 +684,68 @@ export default function LeaderboardAdmin() {
   const [tab,        setTab]        = useState<LeaderboardTab>("alltime");
   const [sortMode,   setSortMode]   = useState<SortMode>("xp");
   const [search,     setSearch]     = useState("");
-  const [loading,    setLoading]    = useState(true);
-  const [users,      setUsers]      = useState<LeaderboardUser[]>([]);
-  const [xpLogs,     setXpLogs]     = useState<XPLogEntry[]>(MOCK_XP_LOGS);
-  const [events,     setEvents]     = useState<GameEvent[]>(MOCK_EVENTS);
   const [adjustTarget,  setAdjustTarget]  = useState<LeaderboardUser | null>(null);
   const [historyTarget, setHistoryTarget] = useState<LeaderboardUser | null>(null);
   const { toasts, add: addToast } = useToast();
 
-  // Simulate Firestore onSnapshot
-  useEffect(() => {
-    setLoading(true);
-    // ── REAL FIREBASE ─────────────────────────────────────────────────
-    // const q = query(collection(db, "users"), orderBy("xp", "desc"), limit(100));
-    // const unsub = onSnapshot(q, (snap) => {
-    //   setUsers(snap.docs.map((d, i) => ({ uid: d.id, ...d.data(), rank: i+1 })) as LeaderboardUser[]);
-    //   setLoading(false);
-    // });
-    // return () => unsub();
-    const t = setTimeout(() => { setUsers(MOCK_USERS); setLoading(false); }, 800);
-    return () => clearTimeout(t);
-  }, []);
+  const {
+    data: usersData,
+    loading: usersLoading,
+    error: usersError,
+    refetch: refetchUsers,
+  } = useCollection<any>("users", [
+    orderBy("totalXP", "desc"),
+    limit(100),
+  ]);
 
-  // Derived: displayed list
+  const users: LeaderboardUser[] = useMemo(() => {
+    if (!usersData) return [];
+    return usersData.map((doc, idx) => ({
+      uid: doc.id,
+      displayName: doc.displayName || doc.name || "Unknown",
+      email: doc.email || "",
+      photoURL: doc.photoURL,
+      xp: doc.totalXP ?? 0,
+      level: doc.level ?? 1,
+      currentStreak: doc.currentStreak ?? 0,
+      role: doc.role ?? "student",
+      monthlyXP: 0,
+      rank: idx + 1,
+      prevRank: idx + 1,
+    }));
+  }, [usersData]);
+
+  const [xpLogs, setXpLogs] = useState<XPLogEntry[]>(MOCK_XP_LOGS);
+  const [events, setEvents] = useState<GameEvent[]>(MOCK_EVENTS);
+
+  const stats = useMemo(() => ({
+    totalXP:    users.reduce((s,u) => s + u.xp, 0),
+    monthlyXP:  0,
+    topStreak:  users.reduce((max,u) => Math.max(max, u.currentStreak), 0),
+    avgLevel:   users.length ? Math.round(users.reduce((s,u) => s + u.level, 0) / users.length) : 0,
+  }), [users]);
+
+  const activeEvent = useMemo(() => events.find(e => e.isActive && e.endDate.getTime() > Date.now() && e.startDate.getTime() <= Date.now()), [events]);
+
+  const handleAdjustXP = useCallback(async (amount: number, reason: string) => {
+    if (!adjustTarget) return;
+    const uid = adjustTarget.uid;
+    try {
+      const result = await updateUserXP(uid, amount, reason);
+      if (!result.success) throw new Error(result.message);
+      addToast(`${amount > 0 ? "+" : ""}${fmtNum(amount)} XP cho ${adjustTarget.displayName}`, amount > 0 ? "success" : "warning");
+    } catch (err: any) {
+      addToast(err.message || "Lỗi khi cập nhật XP", "error");
+    }
+    setAdjustTarget(null);
+  }, [adjustTarget, addToast]);
+
+  const handleEventToggle = useCallback(async (event: GameEvent, active: boolean) => {
+    await new Promise(r => setTimeout(r, 600));
+    setEvents(prev => prev.map(e => e.id === event.id ? { ...e, isActive: active } : e));
+    addToast(`${event.name} ${active ? "đã bật" : "đã tắt"} (x${event.multiplier} XP)`, active ? "success" : "info");
+  }, [addToast]);
+
   const displayedUsers = useMemo(() => {
     let src = [...users];
     if (tab === "monthly") src = src.sort((a,b) => (b.monthlyXP??0) - (a.monthlyXP??0)).map((u,i) => ({ ...u, rank: i+1 }));
@@ -787,76 +755,28 @@ export default function LeaderboardAdmin() {
     return src;
   }, [users, tab, sortMode, search]);
 
-  const activeEvent = useMemo(() => events.find(e => e.isActive && e.endDate.getTime() > Date.now() && e.startDate.getTime() <= Date.now()), [events]);
-
-  // Stats
-  const stats = useMemo(() => ({
-    totalXP:    users.reduce((s,u) => s + u.xp, 0),
-    monthlyXP:  users.reduce((s,u) => s + (u.monthlyXP??0), 0),
-    topStreak:  users.reduce((max,u) => Math.max(max, u.currentStreak), 0),
-    avgLevel:   users.length ? Math.round(users.reduce((s,u) => s + u.level, 0) / users.length) : 0,
-  }), [users]);
-
-  // XP Adjust handler
-  const handleAdjustXP = useCallback(async (amount: number, reason: string) => {
-    if (!adjustTarget) return;
-    const uid = adjustTarget.uid;
-
-    // ── REAL FIREBASE TRANSACTION ──────────────────────────────────────
-    // await runTransaction(db, async (tx) => {
-    //   const userRef = doc(db, "users", uid);
-    //   const snap = await tx.get(userRef);
-    //   if (!snap.exists()) throw new Error("User not found");
-    //   const currentXP = snap.data().xp ?? 0;
-    //   tx.update(userRef, {
-    //     xp: Math.max(0, currentXP + amount),
-    //     updatedAt: serverTimestamp(),
-    //   });
-    //   const logRef = doc(collection(db, "xp_logs"));
-    //   tx.set(logRef, {
-    //     userId: uid,
-    //     amount,
-    //     reason,
-    //     activityType: "admin_adjust",
-    //     adminNote: reason,
-    //     createdBy: "admin@smartreview.io",
-    //     createdAt: serverTimestamp(),
-    //   });
-    // });
-    // ── MOCK ─────────────────────────────────────────────────────────
-    await new Promise(r => setTimeout(r, 800));
-    setUsers(prev => prev.map(u => u.uid === uid
-      ? { ...u, xp: Math.max(0, u.xp + amount), level: Math.max(1, u.level + (amount > 0 ? Math.floor(amount / 500) : 0)) }
-      : u
-    ).sort((a,b) => b.xp - a.xp).map((u,i) => ({ ...u, rank:i+1 })));
-    setXpLogs(prev => [{
-      id: `xl_${Date.now()}`, userId: uid, amount, reason,
-      activityType: "admin_adjust", adminNote: reason, createdAt: new Date(),
-    }, ...prev]);
-    addToast(`${amount>0?"+":""}${fmtNum(amount)} XP cho ${adjustTarget.displayName}`, amount>0?"success":"warning");
-  }, [adjustTarget, addToast]);
-
-  // Event toggle handler
-  const handleEventToggle = useCallback(async (event: GameEvent, active: boolean) => {
-    // ── REAL FIREBASE ─────────────────────────────────────────────────
-    // await updateDoc(doc(db, "events", event.id), {
-    //   isActive: active,
-    //   updatedAt: serverTimestamp(),
-    // });
-    // If activating, trigger Cloud Function to set xp multiplier:
-    // await httpsCallable(functions, "setXPMultiplier")({ eventId: event.id, active });
-    // ── MOCK ─────────────────────────────────────────────────────────
-    await new Promise(r => setTimeout(r, 600));
-    setEvents(prev => prev.map(e => e.id === event.id ? { ...e, isActive: active } : e));
-    addToast(`${event.name} ${active?"đã bật":"đã tắt"} (x${event.multiplier} XP)`, active?"success":"info");
-  }, [addToast]);
-
   const podiumUsers = useMemo(() => {
     const src = tab === "alltime"
       ? [...users].sort((a,b) => b.xp - a.xp)
       : [...users].sort((a,b) => (b.monthlyXP??0) - (a.monthlyXP??0));
-    return [src[1], src[0], src[2]].filter(Boolean); // 2nd, 1st, 3rd for visual podium
+    return [src[1], src[0], src[2]].filter(Boolean);
   }, [users, tab]);
+
+  if (usersError) {
+    return (
+      <div style={{ minHeight:"100vh", background:"#09080F", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Space Grotesk', sans-serif" }}>
+        <div style={{ textAlign:"center", color:"#ffb4ab", background:"rgba(26,26,46,.8)", padding:32, borderRadius:24, maxWidth:480 }}>
+          <AlertTriangle size={48} style={{ marginBottom:16 }} />
+          <h2 style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>Lỗi tải dữ liệu</h2>
+          <p style={{ fontSize:13, marginBottom:16 }}>{usersError.message}</p>
+          <button onClick={refetchUsers}
+            style={{ background:"linear-gradient(135deg,#6C63FF,#9B59B6)", border:"none", padding:"10px 20px", borderRadius:12, color:"#fff", fontWeight:700, cursor:"pointer" }}>
+            Thử lại
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight:"100vh", background:"#09080F", color:"#E4E1EE", fontFamily:"'Space Grotesk', sans-serif", backgroundImage:"radial-gradient(ellipse at 10% 0%, rgba(108,99,255,.09) 0%, transparent 50%), radial-gradient(ellipse at 90% 100%, rgba(255,215,0,.04) 0%, transparent 50%)" }}>
@@ -878,7 +798,6 @@ export default function LeaderboardAdmin() {
 
       <div style={{ maxWidth:1280, margin:"0 auto", padding:"28px 24px", display:"flex", flexDirection:"column", gap:24 }}>
 
-        {/* ── PAGE HEADER ──────────────────────────────────────────── */}
         <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", flexWrap:"wrap", gap:14 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ width:46, height:46, borderRadius:14, background:"linear-gradient(135deg,#6C63FF,#9B59B6)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 24px rgba(108,99,255,.35)" }}>
@@ -899,7 +818,7 @@ export default function LeaderboardAdmin() {
                 <span style={{ width:7, height:7, borderRadius:"50%", background:activeEvent.color, display:"inline-block", animation:"pulse 1.5s infinite" }}/>
               </div>
             )}
-            <button onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 600); }}
+            <button onClick={refetchUsers}
               style={{ display:"flex", alignItems:"center", gap:7, padding:"9px 16px", borderRadius:11, fontSize:13, fontWeight:600, cursor:"pointer", background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.08)", color:"#C7C4D8", transition:"all .2s" }}
               onMouseOver={e=>{e.currentTarget.style.color="#e3dfff"; e.currentTarget.style.borderColor="rgba(255,255,255,.2)";}}
               onMouseOut={e =>{e.currentTarget.style.color="#C7C4D8"; e.currentTarget.style.borderColor="rgba(255,255,255,.08)";}}>
@@ -908,7 +827,6 @@ export default function LeaderboardAdmin() {
           </div>
         </div>
 
-        {/* ── STAT STRIP ───────────────────────────────────────────── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
           {[
             { icon:<Zap size={17} color="#FFB785"/>,     label:"Tổng XP",       val:fmtNum(stats.totalXP),    color:"#FFB785", glow:"rgba(255,183,133,.08)" },
@@ -928,14 +846,11 @@ export default function LeaderboardAdmin() {
           ))}
         </div>
 
-        {/* ── MAIN LAYOUT: Table + Events sidebar ──────────────────── */}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:20, alignItems:"start" }}>
 
-          {/* LEFT: Leaderboard */}
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
-            {/* Podium */}
-            {!loading && podiumUsers.length >= 3 && (
+            {!usersLoading && podiumUsers.length >= 3 && (
               <div style={{ background:"rgba(22,20,34,.7)", border:"1px solid rgba(255,255,255,.07)", borderRadius:20, padding:"20px 16px 0", overflow:"hidden" }}>
                 <div style={{ display:"flex", justifyContent:"center", alignItems:"flex-end", gap:8, paddingBottom:0 }}>
                   {podiumUsers.map((u, idx) => {
@@ -962,38 +877,27 @@ export default function LeaderboardAdmin() {
               </div>
             )}
 
-            {/* Tabs + Search + Sort */}
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                {/* Tabs */}
                 <div style={{ display:"flex", gap:3, background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.07)", borderRadius:12, padding:4 }}>
-                  {([
-                    { id:"alltime", label:"🏆 Tổng cộng" },
-                    { id:"monthly", label:"📅 Tháng này" },
-                  ] as const).map(({ id, label }) => (
+                  {(["alltime","monthly"] as const).map((id) => (
                     <button key={id} onClick={() => setTab(id)}
                       style={{ padding:"7px 14px", borderRadius:9, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all .2s", background:tab===id?"linear-gradient(135deg,#6C63FF,#9B59B6)":"transparent", border:tab===id?"1px solid rgba(108,99,255,.3)":"1px solid transparent", color:tab===id?"#fff":"#C7C4D8", boxShadow:tab===id?"0 0 12px rgba(108,99,255,.22)":"none" }}>
-                      {label}
+                      {id === "alltime" ? "🏆 Tổng cộng" : "📅 Tháng này"}
                     </button>
                   ))}
                 </div>
 
-                {/* Sort */}
                 <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
-                  {([
-                    { id:"xp",     label:"XP"     },
-                    { id:"level",  label:"Level"  },
-                    { id:"streak", label:"Streak" },
-                  ] as const).map(({ id, label }) => (
-                    <button key={id} onClick={() => setSortMode(id)}
-                      style={{ padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, cursor:"pointer", transition:"all .15s", background:sortMode===id?"rgba(196,192,255,.15)":"rgba(255,255,255,.04)", border:`1px solid ${sortMode===id?"rgba(196,192,255,.35)":"rgba(255,255,255,.07)"}`, color:sortMode===id?"#c4c0ff":"#C7C4D8" }}>
-                      {label}
+                  {(["xp","level","streak"] as const).map((mode) => (
+                    <button key={mode} onClick={() => setSortMode(mode)}
+                      style={{ padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, cursor:"pointer", transition:"all .15s", background:sortMode===mode?"rgba(196,192,255,.15)":"rgba(255,255,255,.04)", border:`1px solid ${sortMode===mode?"rgba(196,192,255,.35)":"rgba(255,255,255,.07)"}`, color:sortMode===mode?"#c4c0ff":"#C7C4D8" }}>
+                      {mode === "xp" ? "XP" : mode === "level" ? "Level" : "Streak"}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Search */}
               <div style={{ position:"relative" }}>
                 <Search size={13} style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", color:"#C7C4D8" }}/>
                 <input value={search} onChange={e => setSearch(e.target.value)}
@@ -1003,19 +907,16 @@ export default function LeaderboardAdmin() {
               </div>
             </div>
 
-            {/* Table */}
             <LeaderboardTable
               users={displayedUsers}
-              loading={loading}
+              loading={usersLoading}
               tab={tab}
               onAdjust={setAdjustTarget}
               onHistory={setHistoryTarget}
             />
           </div>
 
-          {/* RIGHT: Events + Quick stats sidebar */}
           <div style={{ display:"flex", flexDirection:"column", gap:16, position:"sticky", top:20 }}>
-            {/* Events header */}
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <Sparkles size={16} color="#FFD700"/>
@@ -1028,7 +929,6 @@ export default function LeaderboardAdmin() {
               <EventControlCard key={event.id} event={event} onToggle={handleEventToggle}/>
             ))}
 
-            {/* XP log legend */}
             <div style={{ background:"rgba(22,20,34,.7)", border:"1px solid rgba(255,255,255,.07)", borderRadius:18, padding:16 }}>
               <div style={{ fontSize:11, fontWeight:700, color:"#C7C4D8", letterSpacing:".07em", textTransform:"uppercase", marginBottom:12 }}>Loại XP</div>
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -1043,22 +943,18 @@ export default function LeaderboardAdmin() {
               </div>
             </div>
 
-            {/* Firebase info */}
             <div style={{ background:"rgba(108,99,255,.06)", border:"1px solid rgba(108,99,255,.18)", borderRadius:16, padding:"14px 16px" }}>
               <div style={{ fontSize:10, fontWeight:700, color:"#9B59B6", marginBottom:8, letterSpacing:".07em", textTransform:"uppercase" }}>Firebase Logic</div>
               <code style={{ fontSize:10, color:"#c4c0ff", lineHeight:2, display:"block" }}>
                 {"// XP adjustment:\n"}
-                runTransaction(db, async (tx) {"{"}<br/>
-                &nbsp;&nbsp;tx.update(userRef, {"{"} xp {"}"});<br/>
-                &nbsp;&nbsp;tx.set(logRef, xpLog);<br/>
-                {"}"})
+                batch.update(userRef, {"{"} totalXP: increment(amount) {"}"});<br/>
+                batch.set(logRef, xpLog);
               </code>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── MODALS ──────────────────────────────────────────────────── */}
       {adjustTarget && (
         <XPAdjustmentModal
           user={adjustTarget}

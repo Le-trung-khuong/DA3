@@ -1,16 +1,34 @@
 /**
  * src/pages/client/CourseDetail.tsx
- * Chi tiết khóa học (modules & lessons) + progress tracking
+ * Chi tiết khóa học (modules & lessons) + progress tracking + reviews
  */
 
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { where } from "firebase/firestore";
 import { useDocument } from "../../hooks/useFirestore";
 import { useProgress } from "../../hooks/useProgress";
 import { useAuth } from "../../contexts/AuthContext";
-import { Clock, BookOpen, Star, Users, CheckCircle, Lock, Play, Zap, FileText, Layers, ChevronRight } from "lucide-react";
+import { useCollection } from "../../hooks/useFirestore";
+import { createReview, hasUserReviewed } from "../../services/reviewService";
+import { ReviewForm } from "../../components/client/ReviewForm";
+import { ReviewList } from "../../components/client/ReviewList";
+import type { Review } from "../../types/review";
+import {
+  Clock,
+  BookOpen,
+  Star,
+  Users,
+  CheckCircle,
+  Lock,
+  Play,
+  Zap,
+  FileText,
+  Layers,
+  ChevronRight,
+} from "lucide-react";
 
 interface Lesson {
   id: string;
@@ -44,21 +62,70 @@ interface Course {
   modules: Module[];
 }
 
+// Helper chuyển đổi an toàn từ Timestamp hoặc Date sang số milliseconds
+const toMillis = (value: any): number => {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'object' && typeof value.toDate === 'function') {
+    return value.toDate().getTime();
+  }
+  return 0;
+};
+
 export default function CourseDetail() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [userReviewed, setUserReviewed] = useState(false);
+  const [reviewCheckLoading, setReviewCheckLoading] = useState(true);
 
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
   const { progress, isLessonCompleted, getQuizScore } = useProgress(currentUser?.uid, courseId);
 
-  // Đơn giản: kiểm tra xem user đã enroll chưa (giả sử có collection enrollments, tạm thời cho phép tất cả)
-  // Ở giai đoạn này, tôi sẽ coi như user đã enroll để xem được nội dung.
-  // Sau này sẽ implement enroll logic.
+  // Lấy danh sách reviews realtime (không orderBy trong query để tránh lỗi index)
+  const { data: reviewData, loading: reviewsLoading, error: reviewsError } = useCollection<Review>(
+    "reviews",
+    [where("courseId", "==", courseId || "")],
+    [courseId]
+  );
+
+  // Sort client-side an toàn (mới nhất lên đầu)
+  const reviews = useMemo(() => {
+    const list = (reviewData || []) as Review[];
+    return [...list].sort((a, b) => {
+      const aTime = toMillis(a.createdAt);
+      const bTime = toMillis(b.createdAt);
+      return bTime - aTime;
+    });
+  }, [reviewData]);
+
+  // Log lỗi Firestore (nếu có) để debug
+  useEffect(() => {
+    if (reviewsError) {
+      console.error("Lỗi khi lấy reviews:", reviewsError);
+      if (reviewsError.message.includes("index")) {
+        console.warn("Cần tạo composite index cho reviews. Click link trong console để tạo.");
+      }
+    }
+  }, [reviewsError]);
+
+  // Kiểm tra user đã review chưa
+  useEffect(() => {
+    async function checkReviewed() {
+      if (currentUser && courseId) {
+        const reviewed = await hasUserReviewed(currentUser.uid, courseId);
+        setUserReviewed(reviewed);
+      }
+      setReviewCheckLoading(false);
+    }
+    checkReviewed();
+  }, [currentUser, courseId]);
+
+  // Tạm thời coi user đã enroll để test (sau này thay bằng logic thật)
   useEffect(() => {
     if (currentUser && courseId) {
-      // TODO: check enrollment in Firestore
       setIsEnrolled(true);
     } else {
       setIsEnrolled(false);
@@ -66,12 +133,25 @@ export default function CourseDetail() {
   }, [currentUser, courseId]);
 
   const handleStartLesson = (moduleId: string, lesson: Lesson) => {
-    // Nếu lesson không free và chưa enroll thì không cho học
     if (!lesson.isFree && !isEnrolled) {
       alert("Please enroll to access this lesson");
       return;
     }
     navigate(`/learn/${courseId}/${moduleId}/${lesson.id}`);
+  };
+
+  const handleSubmitReview = async (rating: number, content: string) => {
+    if (!currentUser) throw new Error("Vui lòng đăng nhập");
+    const result = await createReview(
+      currentUser.uid,
+      currentUser.displayName || currentUser.email?.split("@")[0] || "User",
+      courseId!,
+      course!.title,
+      rating,
+      content
+    );
+    if (!result.success) throw new Error(result.message);
+    setUserReviewed(true);
   };
 
   if (courseLoading) {
@@ -91,18 +171,20 @@ export default function CourseDetail() {
   }
 
   const totalLessons = course.modules.reduce((acc, m) => acc + m.lessons.length, 0);
-  const completedLessons = progress.filter(p => p.status === "completed").length;
+  const completedLessons = progress.filter((p) => p.status === "completed").length;
 
   return (
     <div style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px" }}>
       {/* Hero Section */}
-      <div style={{
-        background: "linear-gradient(135deg, rgba(108,99,255,0.15), rgba(155,89,182,0.1))",
-        borderRadius: 24,
-        padding: 32,
-        marginBottom: 32,
-        border: "1px solid rgba(108,99,255,0.2)",
-      }}>
+      <div
+        style={{
+          background: "linear-gradient(135deg, rgba(108,99,255,0.15), rgba(155,89,182,0.1))",
+          borderRadius: 24,
+          padding: 32,
+          marginBottom: 32,
+          border: "1px solid rgba(108,99,255,0.2)",
+        }}
+      >
         <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "center" }}>
           <div style={{ flex: 2 }}>
             <h1 style={{ fontSize: 36, fontWeight: 800, color: "#E4E1EE", marginBottom: 16 }}>{course.title}</h1>
@@ -152,7 +234,11 @@ export default function CourseDetail() {
           </div>
           <div style={{ flex: 1 }}>
             {course.thumbnailUrl ? (
-              <img src={course.thumbnailUrl} alt={course.title} style={{ width: "100%", borderRadius: 16, boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }} />
+              <img
+                src={course.thumbnailUrl}
+                alt={course.title}
+                style={{ width: "100%", borderRadius: 16, boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}
+              />
             ) : (
               <div style={{ background: "rgba(108,99,255,0.1)", borderRadius: 16, padding: "40px", textAlign: "center" }}>
                 <BookOpen size={48} color="#6C63FF" />
@@ -167,7 +253,7 @@ export default function CourseDetail() {
         <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 24 }}>Course Curriculum</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {course.modules.map((module, idx) => {
-            const moduleCompletedLessons = module.lessons.filter(lesson => isLessonCompleted(module.id, lesson.id)).length;
+            const moduleCompletedLessons = module.lessons.filter((lesson) => isLessonCompleted(module.id, lesson.id)).length;
             const moduleProgress = module.lessons.length ? (moduleCompletedLessons / module.lessons.length) * 100 : 0;
             return (
               <div
@@ -181,9 +267,7 @@ export default function CourseDetail() {
               >
                 <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>
-                      Module {idx + 1}: {module.title}
-                    </h3>
+                    <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>Module {idx + 1}: {module.title}</h3>
                     <span style={{ fontSize: 12, color: "#C7C4D8" }}>{module.lessons.length} lessons</span>
                   </div>
                   <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
@@ -235,6 +319,41 @@ export default function CourseDetail() {
           })}
         </div>
       </div>
+
+      {/* Reviews Section */}
+      <div style={{ marginTop: 48 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>
+            Đánh giá từ học viên ({reviews.length})
+          </h2>
+          {currentUser && !userReviewed && !reviewCheckLoading && (
+            <button
+              onClick={() => setShowReviewForm(true)}
+              style={{
+                background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                border: "none",
+                padding: "8px 20px",
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 700,
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Viết đánh giá
+            </button>
+          )}
+        </div>
+        <ReviewList reviews={reviews} loading={reviewsLoading} />
+      </div>
+
+      {/* Review Form Modal */}
+      <ReviewForm
+        isOpen={showReviewForm}
+        onClose={() => setShowReviewForm(false)}
+        onSubmit={handleSubmitReview}
+        courseTitle={course.title}
+      />
     </div>
   );
 }

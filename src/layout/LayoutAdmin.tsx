@@ -12,17 +12,12 @@
  *
  * Routing:
  *   Dùng React Router v6 (useLocation / useNavigate).
- *   Nếu dùng Next.js App Router: đổi useNavigate → router.push,
- *   useLocation → usePathname, Link → next/link.
  *
  * Auth flow:
  *   loading  → skeleton screen
  *   no user  → redirect /admin/login
  *   not admin→ 403 screen
  *   admin    → render children
- *
- * Realtime role: AuthContext lắng nghe onSnapshot users/{uid}
- * → nếu admin bị hạ cấp role, layout tự redirect về 403 mà không cần reload.
  *
  * Dependencies: lucide-react  react-router-dom  @/contexts/AuthContext
  */
@@ -47,40 +42,17 @@ import {
   Shield, AlertTriangle, Loader, RefreshCw, Home,
   TrendingUp, Flag, Zap, Hash, CreditCard, Star,
   ChevronDown, ExternalLink, Activity, Lock, Radio,
-  Info, ShieldOff,
+  Info, ShieldOff, Trophy,  // ← thêm Trophy cho Leaderboard
 } from "lucide-react";
 
-// ─── Auth hook (swap with your path if needed) ─────────────────────────────────
-// import { useNavigate, useLocation, Link } from "react-router-dom";
-
-// ─── Mock hook (remove in production) ──────────────────────────────────────────
-type UserRole = "admin" | "moderator" | "instructor" | "user";
-interface MockAuth {
-  currentUser:  { uid: string; email: string; displayName: string } | null;
-  userProfile:  { displayName: string; role: UserRole; email: string; level: number; totalXP: number; photoURL: string | null } | null;
-  role:         UserRole | null;
-  loading:      boolean;
-  error:        Error | null;
-  logout:       () => Promise<void>;
-}
-function useMockAuth(): MockAuth {
-  const [loading, setLoading] = useState(true);
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 700); return () => clearTimeout(t); }, []);
-  return {
-    currentUser:  { uid: "admin_001", email: "admin@smartreview.vn", displayName: "Admin SR" },
-    userProfile:  { displayName: "Admin SR", role: "admin", email: "admin@smartreview.vn", level: 99, totalXP: 125_000, photoURL: null },
-    role:         loading ? null : "admin",
-    loading,
-    error:        null,
-    logout:       async () => { alert("Logout called → signOut(auth)"); },
-  };
-}
-
+// ─── Auth hook ────────────────────────────────────────────────────────────────
 import { useAuth } from "../contexts/AuthContext";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NAV CONFIG
+// TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
+
+type UserRole = "admin" | "moderator" | "instructor" | "user";
 
 interface NavItem {
   label:      string;
@@ -88,9 +60,13 @@ interface NavItem {
   Icon:       React.ElementType;
   badge?:     number | string;
   badgeColor?:string;
-  section?:   string;           // group header label
-  roles:      UserRole[];       // which roles can see this item
+  section?:   string;
+  roles:      UserRole[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NAV CONFIG (đã thêm Leaderboard)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 const NAV_ITEMS: NavItem[] = [
   // ── OVERVIEW ────────────────────────────────────────────────────────────────
@@ -105,6 +81,7 @@ const NAV_ITEMS: NavItem[] = [
   // ── USERS ───────────────────────────────────────────────────────────────────
   { section: "Users",       label: "All Users",    path: "/admin/users",        Icon: Users,       roles: ["admin","moderator"] },
   {                         label: "Reviews",      path: "/admin/reviews",      Icon: Star,        roles: ["admin","moderator"] },
+  {                         label: "Leaderboard",  path: "/admin/leaderboard",  Icon: Trophy,      roles: ["admin","moderator"] }, // ✅ Thêm mới
 
   // ── COMMUNITY ───────────────────────────────────────────────────────────────
   { section: "Community",   label: "Chat Rooms",   path: "/admin/community",    Icon: Hash,        roles: ["admin","moderator"] },
@@ -144,7 +121,6 @@ interface SidebarItemProps {
 function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
   const { Icon, label, badge, badgeColor = "#ffb4ab" } = item;
   const [hovered, setHovered] = useState(false);
-
   const isActive = active || hovered;
 
   return (
@@ -169,7 +145,6 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
         position: "relative",
       }}
     >
-      {/* Active indicator bar */}
       {active && (
         <span style={{
           position: "absolute", left: 0, top: "20%", bottom: "20%",
@@ -187,7 +162,6 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
         </span>
       )}
 
-      {/* Badge */}
       {badge !== undefined && !collapsed && (
         <span style={{
           background: `${badgeColor}20`, border: `1px solid ${badgeColor}40`,
@@ -222,15 +196,12 @@ interface SidebarProps {
 function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-
   const width = collapsed ? 68 : 240;
 
-  // Filter nav items by role
   const visibleItems = NAV_ITEMS.filter((item) =>
     role ? item.roles.includes(role) : false
   );
 
-  // Group by section
   const sections: { label?: string; items: NavItem[] }[] = [];
   let currentSection: { label?: string; items: NavItem[] } | null = null;
   for (const item of visibleItems) {
@@ -255,13 +226,11 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
     flexDirection:   "column",
     transition:      "width .25s cubic-bezier(.4,0,.2,1), transform .25s",
     overflowX:       "hidden",
-    // On mobile: slide in/out
     transform:       `translateX(${mobileOpen ? "0" : "-100%"})`,
   };
 
   return (
     <>
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div
           onClick={onClose}
@@ -270,7 +239,6 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
       )}
 
       <nav style={sidebarStyle}>
-        {/* Logo */}
         <div style={{ padding: collapsed ? "20px 0" : "20px 18px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.border}`, flexShrink: 0, justifyContent: collapsed ? "center" : "flex-start" }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 0 14px rgba(108,99,255,.4)" }}>
             <Shield size={18} color="#fff" />
@@ -285,7 +253,6 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
               </div>
             </div>
           )}
-          {/* Mobile close */}
           {mobileOpen && (
             <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: T.muted as string }}>
               <X size={18} />
@@ -293,7 +260,6 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
           )}
         </div>
 
-        {/* Nav items */}
         <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: collapsed ? "12px 6px" : "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
           {sections.map((sec) => (
             <div key={sec.label ?? "root"} style={{ marginBottom: 6 }}>
@@ -315,7 +281,6 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
           ))}
         </div>
 
-        {/* Bottom: live indicator */}
         {!collapsed && (
           <div style={{ padding: "10px 18px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "#45f1c5", fontWeight: 700, flexShrink: 0 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#45f1c5", display: "inline-block", animation: "pulse 2s infinite" }} />
@@ -328,7 +293,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TopBar
+// TopBar (giữ nguyên, không thay đổi)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TopBarProps {
@@ -341,18 +306,17 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
   const { userProfile, logout, role } = useAuth();
   const navigate = useNavigate();
 
-  const [search,      setSearch]      = useState("");
+  const [search, setSearch] = useState("");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [notifOpen,    setNotifOpen]   = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
-  const userMenuRef  = useRef<HTMLDivElement>(null);
-  const notifRef     = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdowns on outside click
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (userMenuRef.current  && !userMenuRef.current.contains(e.target as Node))  setUserMenuOpen(false);
-      if (notifRef.current     && !notifRef.current.contains(e.target as Node))     setNotifOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) setUserMenuOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -360,7 +324,6 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 
   const avatarLetter = (userProfile?.displayName ?? "A").charAt(0).toUpperCase();
 
-  // Mock notifications
   const notifs = [
     { id: 1, text: "7 messages flagged for review",     color: "#ffb4ab", time: "5m ago" },
     { id: 2, text: "New user registered: Nguyễn Minh",  color: "#45f1c5", time: "12m ago" },
@@ -369,35 +332,21 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 
   return (
     <header style={{
-      position:    "fixed",
-      top:         0,
-      left:        sidebarWidth,
-      right:       0,
-      height:      62,
-      zIndex:      50,
-      background:  "rgba(15,15,26,.92)",
-      backdropFilter: "blur(18px)",
-      borderBottom: `1px solid ${T.border}`,
-      display:     "flex",
-      alignItems:  "center",
-      gap:         16,
-      padding:     "0 22px",
-      transition:  "left .25s cubic-bezier(.4,0,.2,1)",
-      fontFamily:  "Inter,sans-serif",
+      position: "fixed", top: 0, left: sidebarWidth, right: 0, height: 62, zIndex: 50,
+      background: "rgba(15,15,26,.92)", backdropFilter: "blur(18px)",
+      borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center",
+      gap: 16, padding: "0 22px", transition: "left .25s cubic-bezier(.4,0,.2,1)",
+      fontFamily: "Inter,sans-serif",
     }}>
-
-      {/* Mobile menu toggle */}
       <button onClick={onToggle}
         style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.muted as string, flexShrink: 0 }}>
         {collapsed ? <Menu size={16} /> : <Menu size={16} />}
       </button>
 
-      {/* Search */}
       <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
         <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.dim as string }} />
         <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search users, courses, transactions…"
           style={{
             width: "100%", background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`,
@@ -405,8 +354,8 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
             fontSize: 13, outline: "none", fontFamily: "Inter,sans-serif",
             transition: "border-color .2s",
           }}
-          onFocus={(e)  => (e.target.style.borderColor = "rgba(108,99,255,.45)")}
-          onBlur={(e)   => (e.target.style.borderColor = T.border as string)}
+          onFocus={(e) => (e.target.style.borderColor = "rgba(108,99,255,.45)")}
+          onBlur={(e) => (e.target.style.borderColor = T.border as string)}
         />
         {search && (
           <button onClick={() => setSearch("")}
@@ -417,12 +366,10 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
       </div>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-        {/* Role badge */}
         <span style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 999, background: "rgba(108,99,255,.12)", border: "1px solid rgba(108,99,255,.28)", color: "#c4c0ff", fontSize: 11, fontWeight: 800, letterSpacing: ".06em" }}>
           <Shield size={11} /> {role?.toUpperCase() ?? "—"}
         </span>
 
-        {/* Notifications */}
         <div ref={notifRef} style={{ position: "relative" }}>
           <button onClick={() => setNotifOpen((p) => !p)}
             style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.muted as string, position: "relative" }}>
@@ -437,7 +384,7 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
               {notifs.map((n) => (
                 <div key={n.id} style={{ display: "flex", gap: 10, padding: "9px 10px", borderRadius: 10, cursor: "pointer", transition: "background .15s" }}
                   onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.04)")}
-                  onMouseOut={(e)  => (e.currentTarget.style.background = "transparent")}>
+                  onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}>
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: n.color, marginTop: 5, flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12, color: T.text as string, fontWeight: 600, lineHeight: 1.4 }}>{n.text}</div>
@@ -449,13 +396,11 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
           )}
         </div>
 
-        {/* User menu */}
         <div ref={userMenuRef} style={{ position: "relative" }}>
           <button onClick={() => setUserMenuOpen((p) => !p)}
             style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 10px 6px 6px", borderRadius: 12, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, cursor: "pointer", transition: "all .15s" }}
             onMouseOver={(e) => (e.currentTarget.style.borderColor = "rgba(108,99,255,.35)")}
-            onMouseOut={(e)  => (e.currentTarget.style.borderColor = T.border as string)}
-          >
+            onMouseOut={(e) => (e.currentTarget.style.borderColor = T.border as string)}>
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#6C63FF,#9B59B6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff" }}>
               {avatarLetter}
             </div>
@@ -468,20 +413,19 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 
           {userMenuOpen && (
             <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 220, background: "rgba(26,26,46,.97)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 8, boxShadow: "0 16px 50px rgba(0,0,0,.5)", animation: "fadeDown .2s ease", zIndex: 80 }}>
-              {/* User info strip */}
               <div style={{ padding: "10px 12px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 6 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: T.text as string }}>{userProfile?.displayName}</div>
                 <div style={{ fontSize: 11, color: "#9B59B6" }}>Level {userProfile?.level} · {(userProfile?.totalXP ?? 0).toLocaleString()} XP</div>
               </div>
               {[
-                { Icon: Home,         label: "Main App",   action: () => navigate("/"),          color: T.muted as string },
-                { Icon: Settings,     label: "Settings",   action: () => navigate("/admin/settings"), color: T.muted as string },
-                { Icon: ExternalLink, label: "Docs",       action: () => {},                     color: T.muted as string },
+                { Icon: Home, label: "Main App", action: () => navigate("/"), color: T.muted as string },
+                { Icon: Settings, label: "Settings", action: () => navigate("/admin/settings"), color: T.muted as string },
+                { Icon: ExternalLink, label: "Docs", action: () => {}, color: T.muted as string },
               ].map(({ Icon, label, action, color }) => (
                 <button key={label} onClick={() => { action(); setUserMenuOpen(false); }}
                   style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "none", border: "none", color, transition: "all .15s", textAlign: "left" }}
                   onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.05)")}
-                  onMouseOut={(e)  => (e.currentTarget.style.background = "none")}>
+                  onMouseOut={(e) => (e.currentTarget.style.background = "none")}>
                   <Icon size={14} /> {label}
                 </button>
               ))}
@@ -489,7 +433,7 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
               <button onClick={async () => { await logout(); navigate("/admin/login"); setUserMenuOpen(false); }}
                 style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", background: "none", border: "none", color: "#ffb4ab", transition: "all .15s", textAlign: "left" }}
                 onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,180,171,.08)")}
-                onMouseOut={(e)  => (e.currentTarget.style.background = "none")}>
+                onMouseOut={(e) => (e.currentTarget.style.background = "none")}>
                 <LogOut size={14} /> Sign out
               </button>
             </div>
@@ -501,27 +445,22 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AdminRouteGuard
+// AdminRouteGuard (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface AdminRouteGuardProps {
-  children:      ReactNode;
-  allowedRoles?: UserRole[];   // defaults to ["admin"]
+  children: ReactNode;
+  allowedRoles?: UserRole[];
 }
 
-export function AdminRouteGuard({
-  children,
-  allowedRoles = ["admin"],
-}: AdminRouteGuardProps) {
+export function AdminRouteGuard({ children, allowedRoles = ["admin"] }: AdminRouteGuardProps) {
   const { currentUser, role, loading, error } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect to login when auth resolves to no user
   useEffect(() => {
     if (!loading && !currentUser) navigate("/admin/login");
   }, [loading, currentUser, navigate]);
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, fontFamily: "Inter,sans-serif" }}>
@@ -538,16 +477,13 @@ export function AdminRouteGuard({
     );
   }
 
-  // ── Not logged in (transitioning) ────────────────────────────────────────────
   if (!currentUser) return null;
 
-  // ── Firestore error ──────────────────────────────────────────────────────────
   if (error) {
     const code = (error as { code?: string }).code ?? "";
     return <FirebaseErrorScreen code={code} error={error} onRetry={() => window.location.reload()} />;
   }
 
-  // ── Role still loading ───────────────────────────────────────────────────────
   if (role === null) {
     return (
       <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif" }}>
@@ -556,12 +492,10 @@ export function AdminRouteGuard({
     );
   }
 
-  // ── 403 ─────────────────────────────────────────────────────────────────────
   if (!allowedRoles.includes(role)) {
     return <ForbiddenScreen role={role} onGoHome={() => navigate("/")} />;
   }
 
-  // ── Authorised ───────────────────────────────────────────────────────────────
   return <>{children}</>;
 }
 
@@ -604,9 +538,7 @@ function ForbiddenScreen({ role, onGoHome }: { role: UserRole; onGoHome: () => v
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif", padding: 24 }}>
       <div style={{ maxWidth: 440, width: "100%", textAlign: "center" }}>
-        <div style={{ fontSize: 80, fontWeight: 900, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", lineHeight: 1 }}>
-          403
-        </div>
+        <div style={{ fontSize: 80, fontWeight: 900, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", lineHeight: 1 }}>403</div>
         <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(255,180,171,.12)", border: "1px solid rgba(255,180,171,.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "16px auto" }}>
           <ShieldOff size={28} color="#ffb4ab" />
         </div>
@@ -631,16 +563,15 @@ function ForbiddenScreen({ role, onGoHome }: { role: UserRole; onGoHome: () => v
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface LayoutAdminProps {
-  children:      ReactNode;
+  children?: ReactNode;
   allowedRoles?: UserRole[];
 }
 
 export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps) {
   const { role } = useAuth();
-  const [collapsed,   setCollapsed]   = useState(false);
-  const [mobileOpen,  setMobileOpen]  = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // On narrow screens default sidebar to hidden
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1024px)");
     const handleChange = (e: MediaQueryListEvent) => { if (e.matches) setCollapsed(true); };
@@ -654,7 +585,6 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
   return (
     <AdminRouteGuard allowedRoles={allowedRoles}>
       <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif" }}>
-
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
           *{box-sizing:border-box;margin:0;padding:0;}
@@ -671,7 +601,6 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
           ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:10px;}
         `}</style>
 
-        {/* Sidebar — desktop: persistent; mobile: slide-in */}
         <Sidebar
           collapsed={collapsed}
           mobileOpen={mobileOpen}
@@ -679,26 +608,21 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
           role={role}
         />
 
-        {/* TopBar */}
         <TopBar
           sidebarWidth={sidebarWidth}
           onToggle={() => {
-            if (window.innerWidth < 1024) {
-              setMobileOpen((p) => !p);
-            } else {
-              setCollapsed((p) => !p);
-            }
+            if (window.innerWidth < 1024) setMobileOpen(p => !p);
+            else setCollapsed(p => !p);
           }}
           collapsed={collapsed}
         />
 
-        {/* Main content area */}
         <main style={{
-          marginLeft:  sidebarWidth,
-          paddingTop:  62,
-          minHeight:   "100vh",
-          transition:  "margin-left .25s cubic-bezier(.4,0,.2,1)",
-          background:  "radial-gradient(circle at 5% 0%, rgba(108,99,255,.05) 0%, transparent 55%)",
+          marginLeft: sidebarWidth,
+          paddingTop: 62,
+          minHeight: "100vh",
+          transition: "margin-left .25s cubic-bezier(.4,0,.2,1)",
+          background: "radial-gradient(circle at 5% 0%, rgba(108,99,255,.05) 0%, transparent 55%)",
         }}>
           <div style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 24px" }}>
             <Outlet />
