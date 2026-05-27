@@ -81,6 +81,10 @@ export async function warnUser(userId: string, reason: string): Promise<void> {
  * Dismiss report (xóa flag reported)
  */
 export async function ignoreReport(roomId: string, messageId: string): Promise<void> {
+  if (!roomId || !messageId) {
+    console.error("ignoreReport called with invalid roomId or messageId", { roomId, messageId });
+    return;
+  }
   const msgRef = doc(db, "chat_rooms", roomId, "messages", messageId);
   await updateDoc(msgRef, {
     isReported: false,

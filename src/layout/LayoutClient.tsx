@@ -8,7 +8,7 @@
 import React from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { BookOpen, LogOut, User, Home, GraduationCap } from "lucide-react";
+import { BookOpen, LogOut, User, Home, GraduationCap, MessageSquare } from "lucide-react";
 
 export default function LayoutClient() {
   const { currentUser, userProfile, logout } = useAuth();
@@ -57,13 +57,16 @@ export default function LayoutClient() {
 
           {/* Navigation */}
           <nav style={{ display: "flex", gap: 24, alignItems: "center" }}>
-            <Link to="/" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
-              <Home size={16} /> Home
-            </Link>
-            <Link to="/courses" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
-              <BookOpen size={16} /> Courses
-            </Link>
-          </nav>
+  <Link to="/" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+    <Home size={16} /> Home
+  </Link>
+  <Link to="/courses" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+    <BookOpen size={16} /> Courses
+  </Link>
+  <Link to="/chat" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+    <MessageSquare size={16} /> Chat
+  </Link>
+</nav>
 
           {/* User menu */}
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>

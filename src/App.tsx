@@ -20,6 +20,8 @@ import CourseCatalog from './pages/client/CourseCatalog';
 import CourseDetail from './pages/client/CourseDetail';
 import LessonPlayer from './pages/client/LessonPlayer';           // ✅ SỬA: dùng component thật
 import ReviewListAdmin from './pages/admin/reviews/ReviewListAdmin';
+import ChatRooms from './pages/client/ChatRooms';
+import ChatRoom from './pages/client/ChatRoom';
 
 // Placeholder cho các trang admin chưa có
 const PlaceholderPage = ({ title }: { title: string }) => (
@@ -43,6 +45,8 @@ function App() {
             <Route path="courses" element={<CourseCatalog />} />
             <Route path="courses/:courseId" element={<CourseDetail />} />
             <Route path="learn/:courseId/:moduleId/:lessonId" element={<LessonPlayer />} />
+            <Route path="chat" element={<ChatRooms />} />
+            <Route path="chat/:roomId" element={<ChatRoom />} />
           </Route>
 
           {/* Admin routes */}

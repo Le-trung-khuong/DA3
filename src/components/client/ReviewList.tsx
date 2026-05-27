@@ -1,26 +1,24 @@
 /**
  * src/components/client/ReviewList.tsx
- * Hiển thị danh sách đánh giá của khóa học
+ * Hiển thị danh sách đánh giá của khóa học + nút sửa/xóa cho review của chính user
  */
 
 import React from "react";
-import { Star, Calendar } from "lucide-react";
+import { Star, Calendar, Edit, Trash2 } from "lucide-react";
 import type { Review } from "../../types/review";
 
 interface ReviewListProps {
   reviews: Review[];
   loading: boolean;
+  currentUserId?: string;
+  onEdit?: (review: Review) => void;
+  onDelete?: (reviewId: string) => void;
 }
 
-// Helper chuyển đổi an toàn từ Timestamp (Firestore) hoặc Date sang Date object
 const toSafeDate = (value: any): Date => {
   if (!value) return new Date();
   if (value instanceof Date) return value;
-  // Firestore Timestamp
-  if (typeof value === "object" && typeof value.toDate === "function") {
-    return value.toDate();
-  }
-  // Nếu là số (milliseconds) hoặc string
+  if (typeof value === "object" && typeof value.toDate === "function") return value.toDate();
   const d = new Date(value);
   return isNaN(d.getTime()) ? new Date() : d;
 };
@@ -30,7 +28,7 @@ const fmtDate = (d: any): string => {
   return date.toLocaleDateString("vi-VN");
 };
 
-export function ReviewList({ reviews, loading }: ReviewListProps) {
+export function ReviewList({ reviews, loading, currentUserId, onEdit, onDelete }: ReviewListProps) {
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 32 }}>
@@ -88,7 +86,7 @@ export function ReviewList({ reviews, loading }: ReviewListProps) {
             >
               {review.userName.charAt(0).toUpperCase()}
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, color: "#E4E1EE" }}>{review.userName}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                 <div style={{ display: "flex", gap: 2 }}>
@@ -107,6 +105,46 @@ export function ReviewList({ reviews, loading }: ReviewListProps) {
                 </span>
               </div>
             </div>
+            {currentUserId && review.userId === currentUserId && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => onEdit?.(review)}
+                  style={{
+                    background: "rgba(108,99,255,0.2)",
+                    border: "none",
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#6C63FF",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Edit size={12} /> Sửa
+                </button>
+                <button
+                  onClick={() => onDelete?.(review.id)}
+                  style={{
+                    background: "rgba(231,76,60,0.2)",
+                    border: "none",
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#e74c3c",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Trash2 size={12} /> Xóa
+                </button>
+              </div>
+            )}
           </div>
           <p style={{ fontSize: 14, color: "#C7C4D8", lineHeight: 1.6 }}>{review.content}</p>
           {review.helpfulCount > 0 && (

@@ -1,6 +1,6 @@
 /**
  * src/pages/client/CourseDetail.tsx
- * Chi tiết khóa học (modules & lessons) + progress tracking + reviews
+ * Chi tiết khóa học (modules & lessons) + progress tracking + reviews + sửa/xóa review
  */
 
 "use client";
@@ -12,7 +12,12 @@ import { useDocument } from "../../hooks/useFirestore";
 import { useProgress } from "../../hooks/useProgress";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCollection } from "../../hooks/useFirestore";
-import { createReview, hasUserReviewed } from "../../services/reviewService";
+import {
+  createReview,
+  hasUserReviewed,
+  updateReview,
+  deleteReviewWithRecalc,
+} from "../../services/reviewService";
 import { ReviewForm } from "../../components/client/ReviewForm";
 import { ReviewList } from "../../components/client/ReviewList";
 import type { Review } from "../../types/review";
@@ -28,6 +33,7 @@ import {
   FileText,
   Layers,
   ChevronRight,
+  X,
 } from "lucide-react";
 
 interface Lesson {
@@ -66,7 +72,7 @@ interface Course {
 const toMillis = (value: any): number => {
   if (!value) return 0;
   if (value instanceof Date) return value.getTime();
-  if (typeof value === 'object' && typeof value.toDate === 'function') {
+  if (typeof value === "object" && typeof value.toDate === "function") {
     return value.toDate().getTime();
   }
   return 0;
@@ -80,12 +86,22 @@ export default function CourseDetail() {
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [userReviewed, setUserReviewed] = useState(false);
   const [reviewCheckLoading, setReviewCheckLoading] = useState(true);
+  const [editingReview, setEditingReview] = useState<Review | null>(null);
+  const [editRating, setEditRating] = useState(0);
+  const [editContent, setEditContent] = useState("");
 
-  const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
+  const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>(
+    "courses",
+    courseId
+  );
   const { progress, isLessonCompleted, getQuizScore } = useProgress(currentUser?.uid, courseId);
 
-  // Lấy danh sách reviews realtime (không orderBy trong query để tránh lỗi index)
-  const { data: reviewData, loading: reviewsLoading, error: reviewsError } = useCollection<Review>(
+  // Lấy danh sách reviews realtime
+  const {
+    data: reviewData,
+    loading: reviewsLoading,
+    error: reviewsError,
+  } = useCollection<Review>(
     "reviews",
     [where("courseId", "==", courseId || "")],
     [courseId]
@@ -101,7 +117,6 @@ export default function CourseDetail() {
     });
   }, [reviewData]);
 
-  // Log lỗi Firestore (nếu có) để debug
   useEffect(() => {
     if (reviewsError) {
       console.error("Lỗi khi lấy reviews:", reviewsError);
@@ -123,14 +138,10 @@ export default function CourseDetail() {
     checkReviewed();
   }, [currentUser, courseId]);
 
-  // Tạm thời coi user đã enroll để test (sau này thay bằng logic thật)
+  // Tạm thời coi user đã enroll để test
   useEffect(() => {
-    if (currentUser && courseId) {
-      setIsEnrolled(true);
-    } else {
-      setIsEnrolled(false);
-    }
-  }, [currentUser, courseId]);
+    setIsEnrolled(!!currentUser);
+  }, [currentUser]);
 
   const handleStartLesson = (moduleId: string, lesson: Lesson) => {
     if (!lesson.isFree && !isEnrolled) {
@@ -154,10 +165,42 @@ export default function CourseDetail() {
     setUserReviewed(true);
   };
 
+  const handleUpdateReview = async () => {
+    if (!editingReview) return;
+    try {
+      await updateReview(editingReview.id, editRating, editContent);
+      setEditingReview(null);
+      // reviews sẽ tự cập nhật realtime
+    } catch (err) {
+      console.error(err);
+      alert("Không thể cập nhật đánh giá");
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    if (window.confirm("Bạn có chắc muốn xóa đánh giá này?")) {
+      try {
+        await deleteReviewWithRecalc(reviewId);
+      } catch (err) {
+        console.error(err);
+        alert("Không thể xóa đánh giá");
+      }
+    }
+  };
+
   if (courseLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
-        <div style={{ width: 48, height: 48, borderRadius: "50%", border: "2px solid rgba(108,99,255,0.2)", borderTopColor: "#6C63FF", animation: "spin 0.8s linear infinite" }} />
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: "50%",
+            border: "2px solid rgba(108,99,255,0.2)",
+            borderTopColor: "#6C63FF",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
       </div>
     );
   }
@@ -187,11 +230,16 @@ export default function CourseDetail() {
       >
         <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "center" }}>
           <div style={{ flex: 2 }}>
-            <h1 style={{ fontSize: 36, fontWeight: 800, color: "#E4E1EE", marginBottom: 16 }}>{course.title}</h1>
-            <p style={{ fontSize: 16, color: "#C7C4D8", lineHeight: 1.6, marginBottom: 24 }}>{course.description}</p>
+            <h1 style={{ fontSize: 36, fontWeight: 800, color: "#E4E1EE", marginBottom: 16 }}>
+              {course.title}
+            </h1>
+            <p style={{ fontSize: 16, color: "#C7C4D8", lineHeight: 1.6, marginBottom: 24 }}>
+              {course.description}
+            </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginBottom: 24 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#C7C4D8" }}>
-                <Star size={16} color="#FFB785" fill="#FFB785" /> {course.rating.toFixed(1)} ({course.ratingCount} reviews)
+                <Star size={16} color="#FFB785" fill="#FFB785" /> {course.rating.toFixed(1)} (
+                {course.ratingCount} reviews)
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#C7C4D8" }}>
                 <Users size={16} /> {course.totalStudents.toLocaleString()} students
@@ -221,13 +269,22 @@ export default function CourseDetail() {
                   Enroll Now • {course.price === 0 ? "Free" : `$${course.price}`}
                 </button>
               ) : (
-                <div style={{ background: "rgba(69,241,197,0.1)", border: "1px solid rgba(69,241,197,0.3)", borderRadius: 12, padding: "8px 16px" }}>
+                <div
+                  style={{
+                    background: "rgba(69,241,197,0.1)",
+                    border: "1px solid rgba(69,241,197,0.3)",
+                    borderRadius: 12,
+                    padding: "8px 16px",
+                  }}
+                >
                   <span style={{ color: "#45f1c5", fontWeight: 700 }}>✓ Enrolled</span>
                 </div>
               )}
               {completedLessons > 0 && (
                 <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "8px 16px" }}>
-                  <span style={{ color: "#C7C4D8", fontWeight: 600 }}>Progress: {completedLessons}/{totalLessons} lessons</span>
+                  <span style={{ color: "#C7C4D8", fontWeight: 600 }}>
+                    Progress: {completedLessons}/{totalLessons} lessons
+                  </span>
                 </div>
               )}
             </div>
@@ -240,7 +297,14 @@ export default function CourseDetail() {
                 style={{ width: "100%", borderRadius: 16, boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}
               />
             ) : (
-              <div style={{ background: "rgba(108,99,255,0.1)", borderRadius: 16, padding: "40px", textAlign: "center" }}>
+              <div
+                style={{
+                  background: "rgba(108,99,255,0.1)",
+                  borderRadius: 16,
+                  padding: "40px",
+                  textAlign: "center",
+                }}
+              >
                 <BookOpen size={48} color="#6C63FF" />
               </div>
             )}
@@ -250,11 +314,17 @@ export default function CourseDetail() {
 
       {/* Curriculum Section */}
       <div>
-        <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 24 }}>Course Curriculum</h2>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 24 }}>
+          Course Curriculum
+        </h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {course.modules.map((module, idx) => {
-            const moduleCompletedLessons = module.lessons.filter((lesson) => isLessonCompleted(module.id, lesson.id)).length;
-            const moduleProgress = module.lessons.length ? (moduleCompletedLessons / module.lessons.length) * 100 : 0;
+            const moduleCompletedLessons = module.lessons.filter((lesson) =>
+              isLessonCompleted(module.id, lesson.id)
+            ).length;
+            const moduleProgress = module.lessons.length
+              ? (moduleCompletedLessons / module.lessons.length) * 100
+              : 0;
             return (
               <div
                 key={module.id}
@@ -265,13 +335,42 @@ export default function CourseDetail() {
                   overflow: "hidden",
                 }}
               >
-                <div style={{ padding: "16px 20px", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>Module {idx + 1}: {module.title}</h3>
+                <div
+                  style={{
+                    padding: "16px 20px",
+                    background: "rgba(255,255,255,0.02)",
+                    borderBottom: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>
+                      Module {idx + 1}: {module.title}
+                    </h3>
                     <span style={{ fontSize: 12, color: "#C7C4D8" }}>{module.lessons.length} lessons</span>
                   </div>
-                  <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ width: `${moduleProgress}%`, height: "100%", background: "linear-gradient(90deg,#6C63FF,#45f1c5)", transition: "width 0.3s" }} />
+                  <div
+                    style={{
+                      height: 4,
+                      background: "rgba(255,255,255,0.1)",
+                      borderRadius: 4,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${moduleProgress}%`,
+                        height: "100%",
+                        background: "linear-gradient(90deg,#6C63FF,#45f1c5)",
+                        transition: "width 0.3s",
+                      }}
+                    />
                   </div>
                 </div>
                 <div>
@@ -292,19 +391,35 @@ export default function CourseDetail() {
                           transition: "background 0.15s",
                           background: completed ? "rgba(69,241,197,0.05)" : "transparent",
                         }}
-                        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                        onMouseOut={(e) => (e.currentTarget.style.background = completed ? "rgba(69,241,197,0.05)" : "transparent")}
+                        onMouseOver={(e) =>
+                          (e.currentTarget.style.background = "rgba(255,255,255,0.04)")
+                        }
+                        onMouseOut={(e) =>
+                          (e.currentTarget.style.background = completed
+                            ? "rgba(69,241,197,0.05)"
+                            : "transparent")
+                        }
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <span style={{ width: 28, textAlign: "center", fontSize: 14, fontWeight: 600, color: "#C7C4D8" }}>{lIdx + 1}</span>
+                          <span
+                            style={{ width: 28, textAlign: "center", fontSize: 14, fontWeight: 600, color: "#C7C4D8" }}
+                          >
+                            {lIdx + 1}
+                          </span>
                           {lesson.type === "video" && <Play size={16} color="#6C63FF" />}
                           {lesson.type === "quiz" && <Zap size={16} color="#45f1c5" />}
                           {lesson.type === "reading" && <FileText size={16} color="#FFB785" />}
                           {lesson.type === "flashcard" && <Layers size={16} color="#c4c0ff" />}
-                          <span style={{ fontSize: 15, fontWeight: 600, color: "#E4E1EE" }}>{lesson.title}</span>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: "#E4E1EE" }}>
+                            {lesson.title}
+                          </span>
                           {!lesson.isFree && !isEnrolled && <Lock size={14} color="#47464f" />}
                           {completed && <CheckCircle size={14} color="#45f1c5" />}
-                          {quizScore !== undefined && <span style={{ fontSize: 11, color: "#45f1c5", marginLeft: 8 }}>Score: {quizScore}%</span>}
+                          {quizScore !== undefined && (
+                            <span style={{ fontSize: 11, color: "#45f1c5", marginLeft: 8 }}>
+                              Score: {quizScore}%
+                            </span>
+                          )}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                           <span style={{ fontSize: 12, color: "#C7C4D8" }}>{lesson.duration} min</span>
@@ -344,7 +459,17 @@ export default function CourseDetail() {
             </button>
           )}
         </div>
-        <ReviewList reviews={reviews} loading={reviewsLoading} />
+        <ReviewList
+          reviews={reviews}
+          loading={reviewsLoading}
+          currentUserId={currentUser?.uid}
+          onEdit={(review) => {
+            setEditingReview(review);
+            setEditRating(review.rating);
+            setEditContent(review.content);
+          }}
+          onDelete={handleDeleteReview}
+        />
       </div>
 
       {/* Review Form Modal */}
@@ -354,6 +479,104 @@ export default function CourseDetail() {
         onSubmit={handleSubmitReview}
         courseTitle={course.title}
       />
+
+      {/* Edit Review Modal */}
+      {editingReview && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setEditingReview(null)}
+        >
+          <div
+            style={{
+              background: "#1A1A2E",
+              borderRadius: 24,
+              padding: 24,
+              width: "90%",
+              maxWidth: 500,
+              border: "1px solid rgba(108,99,255,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 700, color: "#E4E1EE" }}>Chỉnh sửa đánh giá</h3>
+              <button onClick={() => setEditingReview(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                <X size={24} color="#C7C4D8" />
+              </button>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star
+                    key={star}
+                    size={32}
+                    fill={star <= editRating ? "#FFB785" : "transparent"}
+                    color="#FFB785"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setEditRating(star)}
+                  />
+                ))}
+              </div>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                placeholder="Nội dung đánh giá của bạn..."
+                rows={4}
+                style={{
+                  width: "100%",
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 12,
+                  padding: 12,
+                  color: "#E4E1EE",
+                  fontSize: 14,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setEditingReview(null)}
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 12,
+                  fontWeight: 600,
+                  color: "#C7C4D8",
+                  cursor: "pointer",
+                }}
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleUpdateReview}
+                style={{
+                  background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 12,
+                  fontWeight: 600,
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
