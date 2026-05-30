@@ -1,0 +1,185 @@
+/**
+ * src/services/transactionService.ts
+ * Admin transaction operations (refund, force complete, export)
+ */
+
+import { db } from "../utils/config";
+import {
+  collection,
+  doc,
+  updateDoc,
+  getDoc,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  serverTimestamp,
+  Timestamp,
+} from "firebase/firestore";
+import type { Transaction, TransactionStatus } from "../types/transaction";
+import { createEnrollment } from "./enrollmentService";
+import { deactivateEnrollment } from "./enrollmentService";
+
+/**
+ * Refund a successful transaction (admin only)
+ * Updates transaction status, removes purchased course, subtracts XP.
+ */
+export async function refundTransaction(
+  transactionId: string,
+  reason: string,
+  adminId: string,
+  adminEmail: string
+): Promise<void> {
+  const txRef = doc(db, "transactions", transactionId);
+  const txSnap = await getDoc(txRef);
+  if (!txSnap.exists()) throw new Error("Transaction not found");
+  const txData = txSnap.data() as Transaction;
+  if (txData.status !== "success") throw new Error("Only successful transactions can be refunded");
+
+  const batch = writeBatch(db);
+
+  // 1. Update transaction status
+  batch.update(txRef, {
+    status: "refunded",
+    refundedAt: serverTimestamp(),
+    refundReason: reason,
+    updatedAt: serverTimestamp(),
+  });
+
+  await deactivateEnrollment(txData.userId, txData.courseId);
+
+  // 2. Remove purchased course (soft delete or hard delete)
+  const purchasedQuery = query(
+    collection(db, "purchasedCourses"),
+    where("userId", "==", txData.userId),
+    where("courseId", "==", txData.courseId),
+    where("transactionId", "==", transactionId)
+  );
+  const purchasedSnap = await getDocs(purchasedQuery);
+  if (!purchasedSnap.empty) {
+    const purchasedRef = purchasedSnap.docs[0].ref;
+    batch.update(purchasedRef, { isActive: false }); // soft delete
+  }
+
+  // 3. Subtract XP (optional, adjust multiplier as needed)
+  const userRef = doc(db, "users", txData.userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const xpToSubtract = Math.floor(txData.amount * 10); // example: $1 = 10 XP
+    batch.update(userRef, {
+      totalXP: (userSnap.data().totalXP || 0) - xpToSubtract,
+      updatedAt: serverTimestamp(),
+    });
+    // Add negative XP log
+    const logRef = doc(collection(db, "xp_logs"));
+    batch.set(logRef, {
+      userId: txData.userId,
+      amount: -xpToSubtract,
+      reason: `Refund: ${reason}`,
+      activityType: "refund",
+      createdAt: serverTimestamp(),
+      adminNote: `Transaction ${transactionId} refunded by ${adminEmail}`,
+    });
+  }
+
+  // 4. Audit log
+  const auditRef = doc(collection(db, "adminAuditLogs"));
+  batch.set(auditRef, {
+    adminId,
+    adminEmail,
+    action: "refund_transaction",
+    targetId: transactionId,
+    details: { reason, amount: txData.amount, courseName: txData.courseName },
+    createdAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Force complete a transaction (manual override when callback fails)
+ */
+export async function forceCompleteTransaction(
+  transactionId: string,
+  adminId: string,
+  adminEmail: string
+): Promise<void> {
+  const txRef = doc(db, "transactions", transactionId);
+  const txSnap = await getDoc(txRef);
+  if (!txSnap.exists()) throw new Error("Transaction not found");
+  const txData = txSnap.data() as Transaction;
+  if (txData.status !== "pending") throw new Error("Only pending transactions can be force completed");
+
+  const batch = writeBatch(db);
+
+  batch.update(txRef, {
+    status: "success",
+    paidAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // Add purchased course
+  const purchasedRef = doc(collection(db, "purchasedCourses"));
+  batch.set(purchasedRef, {
+    userId: txData.userId,
+    courseId: txData.courseId,
+    transactionId,
+    purchasedAt: serverTimestamp(),
+    isActive: true,
+  });
+
+  await createEnrollment(txData.userId, txData.courseId, transactionId);
+
+  // Add XP for user
+  const userRef = doc(db, "users", txData.userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const xpToAdd = Math.floor(txData.amount * 10);
+    batch.update(userRef, {
+      totalXP: (userSnap.data().totalXP || 0) + xpToAdd,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // Audit log
+  const auditRef = doc(collection(db, "adminAuditLogs"));
+  batch.set(auditRef, {
+    adminId,
+    adminEmail,
+    action: "force_complete",
+    targetId: transactionId,
+    details: { amount: txData.amount, courseName: txData.courseName },
+    createdAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Export transactions to CSV (client-side)
+ */
+export async function exportTransactionsToCSV(transactions: Transaction[]): Promise<void> {
+  const headers = ["ID", "User ID", "User Name", "Course", "Amount (VND)", "Status", "Created At", "Paid At", "Refunded At", "Refund Reason"];
+  const rows = transactions.map(tx => [
+    tx.id,
+    tx.userId,
+    tx.userName,
+    tx.courseName,
+    tx.amount.toString(),
+    tx.status,
+    tx.createdAt?.toDate?.()?.toISOString() || "",
+    tx.paidAt?.toDate?.()?.toISOString() || "",
+    tx.refundedAt?.toDate?.()?.toISOString() || "",
+    tx.refundReason || "",
+  ]);
+  const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.setAttribute("download", `transactions_${new Date().toISOString()}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

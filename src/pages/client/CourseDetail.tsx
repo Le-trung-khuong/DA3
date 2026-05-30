@@ -1,6 +1,8 @@
 /**
  * src/pages/client/CourseDetail.tsx
  * Chi tiết khóa học (modules & lessons) + progress tracking + reviews + sửa/xóa review
+ * Tích hợp realtime enrollment (useUserEnrollment)
+ * Xử lý enroll miễn phí (price === 0) không qua payment flow.
  */
 
 "use client";
@@ -12,6 +14,7 @@ import { useDocument } from "../../hooks/useFirestore";
 import { useProgress } from "../../hooks/useProgress";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCollection } from "../../hooks/useFirestore";
+import { useUserEnrollment } from "../../hooks/useUserEnrollment";
 import {
   createReview,
   hasUserReviewed,
@@ -20,6 +23,7 @@ import {
 } from "../../services/reviewService";
 import { ReviewForm } from "../../components/client/ReviewForm";
 import { ReviewList } from "../../components/client/ReviewList";
+import { createEnrollment } from "../../services/enrollmentService";
 import type { Review } from "../../types/review";
 import {
   Clock,
@@ -68,7 +72,6 @@ interface Course {
   modules: Module[];
 }
 
-// Helper chuyển đổi an toàn từ Timestamp hoặc Date sang số milliseconds
 const toMillis = (value: any): number => {
   if (!value) return 0;
   if (value instanceof Date) return value.getTime();
@@ -82,7 +85,13 @@ export default function CourseDetail() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const [isEnrolled, setIsEnrolled] = useState(false);
+
+  // Realtime enrollment
+  const { isEnrolled, loading: enrollmentLoading } = useUserEnrollment(
+    currentUser?.uid,
+    courseId
+  );
+
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [userReviewed, setUserReviewed] = useState(false);
   const [reviewCheckLoading, setReviewCheckLoading] = useState(true);
@@ -107,7 +116,6 @@ export default function CourseDetail() {
     [courseId]
   );
 
-  // Sort client-side an toàn (mới nhất lên đầu)
   const reviews = useMemo(() => {
     const list = (reviewData || []) as Review[];
     return [...list].sort((a, b) => {
@@ -138,17 +146,34 @@ export default function CourseDetail() {
     checkReviewed();
   }, [currentUser, courseId]);
 
-  // Tạm thời coi user đã enroll để test
-  useEffect(() => {
-    setIsEnrolled(!!currentUser);
-  }, [currentUser]);
-
   const handleStartLesson = (moduleId: string, lesson: Lesson) => {
     if (!lesson.isFree && !isEnrolled) {
-      alert("Please enroll to access this lesson");
+      alert("You need to purchase this course to access this lesson.");
       return;
     }
     navigate(`/learn/${courseId}/${moduleId}/${lesson.id}`);
+  };
+
+  const handleFreeEnroll = async () => {
+    if (!currentUser) {
+      alert("Please login to enroll.");
+      return;
+    }
+    try {
+      await createEnrollment(currentUser.uid, course!.id, "free_course");
+      alert("Successfully enrolled! Redirecting to learning...");
+      // Chuyển đến bài học đầu tiên của khóa học
+      const firstModule = course!.modules[0];
+      const firstLesson = firstModule?.lessons[0];
+      if (firstModule && firstLesson) {
+        navigate(`/learn/${course!.id}/${firstModule.id}/${firstLesson.id}`);
+      } else {
+        navigate(`/courses/${course!.id}`); // fallback
+      }
+    } catch (err) {
+      console.error("Free enrollment error:", err);
+      alert("Enrollment failed. Please try again.");
+    }
   };
 
   const handleSubmitReview = async (rating: number, content: string) => {
@@ -170,7 +195,6 @@ export default function CourseDetail() {
     try {
       await updateReview(editingReview.id, editRating, editContent);
       setEditingReview(null);
-      // reviews sẽ tự cập nhật realtime
     } catch (err) {
       console.error(err);
       alert("Không thể cập nhật đánh giá");
@@ -188,7 +212,7 @@ export default function CourseDetail() {
     }
   };
 
-  if (courseLoading) {
+  if (courseLoading || enrollmentLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
         <div
@@ -253,21 +277,43 @@ export default function CourseDetail() {
             </div>
             <div style={{ display: "flex", gap: 16 }}>
               {!isEnrolled ? (
-                <button
-                  style={{
-                    background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-                    border: "none",
-                    padding: "12px 24px",
-                    borderRadius: 12,
-                    fontSize: 16,
-                    fontWeight: 700,
-                    color: "#fff",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => alert("Enrollment feature coming soon")}
-                >
-                  Enroll Now • {course.price === 0 ? "Free" : `$${course.price}`}
-                </button>
+                course.price === 0 ? (
+                  <button
+                    style={{
+                      background: "linear-gradient(135deg,#45f1c5,#00D4AA)",
+                      border: "none",
+                      padding: "12px 24px",
+                      borderRadius: 12,
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: "#0F0F1A",
+                      cursor: "pointer",
+                    }}
+                    onClick={handleFreeEnroll}
+                  >
+                    Enroll Now • Free
+                  </button>
+                ) : (
+                  <button
+                    style={{
+                      background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                      border: "none",
+                      padding: "12px 24px",
+                      borderRadius: 12,
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: "#fff",
+                      cursor: "pointer",
+                    }}
+                    onClick={() =>
+                      alert(
+                        "Payment gateway will be integrated soon. For testing, please use admin force-complete transaction or manually add enrollment."
+                      )
+                    }
+                  >
+                    Buy Now • ${course.price}
+                  </button>
+                )
               ) : (
                 <div
                   style={{
@@ -377,6 +423,7 @@ export default function CourseDetail() {
                   {module.lessons.map((lesson, lIdx) => {
                     const completed = isLessonCompleted(module.id, lesson.id);
                     const quizScore = getQuizScore(module.id, lesson.id);
+                    const isLocked = !lesson.isFree && !isEnrolled;
                     return (
                       <div
                         key={lesson.id}
@@ -387,18 +434,19 @@ export default function CourseDetail() {
                           justifyContent: "space-between",
                           padding: "14px 20px",
                           borderBottom: "1px solid rgba(255,255,255,0.04)",
-                          cursor: "pointer",
+                          cursor: isLocked ? "not-allowed" : "pointer",
                           transition: "background 0.15s",
                           background: completed ? "rgba(69,241,197,0.05)" : "transparent",
+                          opacity: isLocked ? 0.7 : 1,
                         }}
-                        onMouseOver={(e) =>
-                          (e.currentTarget.style.background = "rgba(255,255,255,0.04)")
-                        }
-                        onMouseOut={(e) =>
-                          (e.currentTarget.style.background = completed
+                        onMouseOver={(e) => {
+                          if (!isLocked) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = completed
                             ? "rgba(69,241,197,0.05)"
-                            : "transparent")
-                        }
+                            : "transparent";
+                        }}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                           <span
@@ -413,7 +461,7 @@ export default function CourseDetail() {
                           <span style={{ fontSize: 15, fontWeight: 600, color: "#E4E1EE" }}>
                             {lesson.title}
                           </span>
-                          {!lesson.isFree && !isEnrolled && <Lock size={14} color="#47464f" />}
+                          {isLocked && <Lock size={14} color="#47464f" />}
                           {completed && <CheckCircle size={14} color="#45f1c5" />}
                           {quizScore !== undefined && (
                             <span style={{ fontSize: 11, color: "#45f1c5", marginLeft: 8 }}>
