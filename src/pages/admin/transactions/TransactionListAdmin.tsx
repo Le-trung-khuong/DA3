@@ -9,6 +9,7 @@
  *   - Refund with Firebase batch write
  *   - Export to CSV
  *   - Transaction detail modal
+ *   - Analytics cards (total, success, failed, refunded, revenue)
  */
 
 "use client";
@@ -18,6 +19,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useTransactions } from "../../../hooks/useTransactions";
 import { refundTransaction, exportTransactionsToCSV } from "../../../services/transactionService";
 import TransactionDetailModal from "./TransactionDetailModal";
+import TransactionAnalyticsCards from "../../../components/admin/TransactionAnalyticsCards";
 import {
   Search,
   ChevronLeft,
@@ -205,15 +207,15 @@ export default function TransactionListAdmin() {
 
   const summaryStats = useMemo(() => {
     const success = transactions.filter(t => t.status === "success");
+    const failed = transactions.filter(t => t.status === "failed");
+    const refunded = transactions.filter(t => t.status === "refunded");
     const totalRevenue = success.reduce((s, t) => s + t.amount, 0);
-    const refundedAmount = transactions.filter(t => t.status === "refunded").reduce((s, t) => s + t.amount, 0);
     return {
       total: transactions.length,
       success: success.length,
-      pending: transactions.filter(t => t.status === "pending").length,
-      refunded: transactions.filter(t => t.status === "refunded").length,
+      failed: failed.length,
+      refunded: refunded.length,
       totalRevenue,
-      refundedAmount,
     };
   }, [transactions]);
 
@@ -250,22 +252,15 @@ export default function TransactionListAdmin() {
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 12 }}>
-          {[
-            { label: "Total", val: summaryStats.total, color: "#c4c0ff" },
-            { label: "Success", val: summaryStats.success, color: "#45f1c5" },
-            { label: "Pending", val: summaryStats.pending, color: "#FFB785" },
-            { label: "Refunded", val: summaryStats.refunded, color: "#B0AEC0" },
-            { label: "Revenue", val: fmtMoney(summaryStats.totalRevenue), color: "#45f1c5" },
-            { label: "Refunded Amt", val: fmtMoney(summaryStats.refundedAmount), color: "#ffb4ab" },
-          ].map(({ label, val, color }) => (
-            <div key={label} style={{ background: "rgba(26,22,40,.7)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 18, padding: "16px 18px", display: "flex", alignItems: "center", gap: 14, backdropFilter: "blur(12px)" }}>
-              <div style={{ width: 38, height: 38, borderRadius: 11, background: `${color}10`, border: `1px solid ${color}28`, display: "flex", alignItems: "center", justifyContent: "center" }}><DollarSign size={18} color={color} /></div>
-              <div><div style={{ fontSize: 10, fontWeight: 700, color: "#C7C4D8", letterSpacing: ".07em", textTransform: "uppercase", marginBottom: 3 }}>{label}</div><div style={{ fontSize: 22, fontWeight: 800, color }}>{val}</div></div>
-            </div>
-          ))}
-        </div>
+        {/* Analytics Cards */}
+        <TransactionAnalyticsCards
+          total={summaryStats.total}
+          success={summaryStats.success}
+          failed={summaryStats.failed}
+          refunded={summaryStats.refunded}
+          totalRevenue={summaryStats.totalRevenue}
+          loading={loading}
+        />
 
         {/* Filters */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>

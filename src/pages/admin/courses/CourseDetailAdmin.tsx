@@ -11,10 +11,11 @@
 
 import React, { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
+import { db } from "../../../utils/config";
 
 // ─── Import custom hooks từ thư mục hooks ─────────────────────────────────────
-import { useDocument } from "../../../hooks/useFirestore";
+import { useDocument, useCollection } from "../../../hooks/useFirestore";
 
 // ─── Recharts ────────────────────────────────────────────────────────────────
 import {
@@ -34,13 +35,16 @@ import {
   Copy, Info, GraduationCap,
 } from "lucide-react";
 
+// ─── Import services ─────────────────────────────────────────────────────────
+import { getEnrollmentCount } from "../../../services/enrollmentService";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
 type CourseStatus  = "published" | "draft" | "archived";
 type CourseLevel   = "beginner" | "intermediate" | "advanced" | "all_levels";
-type LessonType    = "video" | "quiz" | "reading" | "assignment";
+type LessonType    = "video" | "quiz" | "reading" | "assignment" | "flashcard";
 
 interface Lesson {
   id: string;
@@ -60,23 +64,14 @@ interface Module {
   lessons: Lesson[];
 }
 
-interface Instructor {
-  id: string;
-  name: string;
-  title: string;
-  avatar?: string;
-  totalCourses: number;
-  totalStudents: number;
-}
-
 interface Review {
   id: string;
   userId: string;
   userName: string;
   userAvatar?: string;
   rating: number;
-  comment: string;
-  createdAt: Date;
+  content: string;
+  createdAt: any;
   helpful: number;
 }
 
@@ -94,79 +89,20 @@ interface Course {
   language: string;
   tags: string[];
   modules: Module[];
-  instructor?: Instructor;
   rating: number;
   ratingCount: number;
   enrollments: number;
   totalDurationHours: number;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: any;
+  updatedAt: any;
   xpTotal: number;
   completionRate: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MOCK DATA
+// HELPERS (xử lý an toàn Timestamp)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MOCK_REVIEWS: Review[] = [
-  { id: "r1", userId: "u1", userName: "Minh Tuấn", rating: 5, comment: "Best React course I've taken!", createdAt: new Date("2025-04-18"), helpful: 42 },
-  { id: "r2", userId: "u2", userName: "Lan Anh",   rating: 5, comment: "Excellent content!", createdAt: new Date("2025-04-10"), helpful: 31 },
-  { id: "r3", userId: "u3", userName: "Hoàng Dev", rating: 4, comment: "Great course overall.", createdAt: new Date("2025-03-28"), helpful: 18 },
-  { id: "r4", userId: "u4", userName: "Mai Phương",rating: 5, comment: "Highly recommended!", createdAt: new Date("2025-03-15"), helpful: 26 },
-];
-
-const MOCK_ENROLLMENT_TREND: EnrollmentPoint[] = [
-  { date: "Nov", count: 210, revenue: 18690 },
-  { date: "Dec", count: 340, revenue: 30260 },
-  { date: "Jan", count: 480, revenue: 42720 },
-  { date: "Feb", count: 620, revenue: 55180 },
-  { date: "Mar", count: 890, revenue: 79210 },
-  { date: "Apr", count: 940, revenue: 83660 },
-];
-
-const MOCK_RATING_DIST: { stars: number; count: number }[] = [
-  { stars: 5, count: 892 },
-  { stars: 4, count: 243 },
-  { stars: 3, count: 72  },
-  { stars: 2, count: 24  },
-  { stars: 1, count: 14  },
-];
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CUSTOM HOOKS
-// ═══════════════════════════════════════════════════════════════════════════
-
-function useEnrollmentCount(courseId: string) {
-  const [count, setCount] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => { setCount(3480); setLoading(false); }, 600);
-    return () => clearTimeout(t);
-  }, [courseId]);
-  return { count, loading };
-}
-
-function useCourseReviews(courseId: string) {
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [avgRating, setAvgRating] = useState(0);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setReviews(MOCK_REVIEWS);
-      setAvgRating(4.9);
-      setLoading(false);
-    }, 700);
-    return () => clearTimeout(t);
-  }, [courseId]);
-  return { reviews, avgRating, loading };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// HELPERS (đã sửa an toàn)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ✅ Xử lý đúng Timestamp từ Firestore
 const toDate = (value: unknown): Date => {
   if (value instanceof Date) return value;
   if (value instanceof Timestamp) return value.toDate();
@@ -212,20 +148,10 @@ const STATUS_CFG: Record<CourseStatus, { label: string; color: string; bg: strin
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// STATS BADGE
+// COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface StatsBadgeProps {
-  icon: React.ElementType;
-  label: string;
-  value: string | number;
-  sub?: string;
-  accent: string;
-  glow?: string;
-  loading?: boolean;
-}
-
-function StatsBadge({ icon: Icon, label, value, sub, accent, glow, loading }: StatsBadgeProps) {
+function StatsBadge({ icon: Icon, label, value, sub, accent, glow, loading }: any) {
   return (
     <div style={{
       background: "rgba(26,26,46,.65)", border: `1px solid ${accent}`,
@@ -235,8 +161,8 @@ function StatsBadge({ icon: Icon, label, value, sub, accent, glow, loading }: St
       transition: "transform .2s, box-shadow .2s",
       position: "relative", overflow: "hidden",
     }}
-      onMouseOver={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; }}
-      onMouseOut={(e)  => { e.currentTarget.style.transform = "translateY(0)";    }}
+      onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; }}
+      onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";    }}
     >
       <div style={{ position: "absolute", top: -20, right: -20, width: 70, height: 70, borderRadius: "50%", background: accent, filter: "blur(28px)", opacity: .18, pointerEvents: "none" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -276,8 +202,8 @@ function CourseInfo({ course, onEdit }: { course: Course; onEdit: () => void }) 
           </div>
         )}
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity .2s" }}
-          onMouseOver={(e) => (e.currentTarget.style.opacity = "1")}
-          onMouseOut={(e)  => (e.currentTarget.style.opacity = "0")}>
+          onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = "1"; }}
+          onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; }}>
           <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(26,26,46,.85)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px rgba(108,99,255,.4)" }}>
             <Play size={24} color="#e3dfff" fill="#e3dfff" />
           </div>
@@ -367,7 +293,7 @@ function CourseInfo({ course, onEdit }: { course: Course; onEdit: () => void }) 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LESSON ROW
+// MODULE ACCORDION
 // ═══════════════════════════════════════════════════════════════════════════
 
 function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
@@ -375,14 +301,14 @@ function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
     label: lesson.type,
     color: "#C7C4D8",
     bg: "rgba(255,255,255,.05)",
-    Icon: FileText, // fallback icon
+    Icon: FileText,
   };
   const MetaIcon = meta.Icon;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,.022)", border: "1px solid rgba(255,255,255,.06)", transition: "background .15s", cursor: "default" }}
-      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.04)")}
-      onMouseOut={(e)  => (e.currentTarget.style.background = "rgba(255,255,255,.022)")}>
+      onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.04)"; }}
+      onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.022)"; }}>
       <span style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(108,99,255,.18)", border: "1px solid rgba(108,99,255,.28)", fontSize: 10, fontWeight: 800, color: "#c4c0ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         {index + 1}
       </span>
@@ -403,21 +329,9 @@ function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
       <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#C7C4D8", flexShrink: 0, minWidth: 42 }}>
         <Clock size={11} /> {lesson.duration}m
       </span>
-      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-        <button style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(108,99,255,.08)", border: "1px solid rgba(108,99,255,.2)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#6C63FF" }}>
-          <Edit3 size={12} />
-        </button>
-        <button style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,180,171,.07)", border: "1px solid rgba(255,180,171,.18)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#ffb4ab" }}>
-          <Trash2 size={12} />
-        </button>
-      </div>
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MODULE ACCORDION
-// ═══════════════════════════════════════════════════════════════════════════
 
 function ModuleAccordion({ modules, courseId }: { modules: Module[]; courseId: string }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set(modules?.[0]?.id ? [modules[0].id] : []));
@@ -493,7 +407,7 @@ function ModuleAccordion({ modules, courseId }: { modules: Module[]; courseId: s
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// REVIEWS PANEL
+// REVIEWS PANEL (Dùng dữ liệu thật từ Firestore)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
@@ -509,8 +423,74 @@ function StarRating({ rating, size = 14 }: { rating: number; size?: number }) {
   );
 }
 
-function ReviewsPanel({ reviews, avgRating, ratingDist }: { reviews: Review[]; avgRating: number; ratingDist: typeof MOCK_RATING_DIST }) {
+function ReviewsPanel({ courseId }: { courseId: string }) {
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [avgRating, setAvgRating] = useState(0);
+  const [ratingDist, setRatingDist] = useState<{ stars: number; count: number }[]>([
+    { stars: 5, count: 0 }, { stars: 4, count: 0 }, { stars: 3, count: 0 }, { stars: 2, count: 0 }, { stars: 1, count: 0 }
+  ]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    
+    const fetchReviews = async () => {
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, "reviews"),
+          where("courseId", "==", courseId),
+          orderBy("createdAt", "desc")
+        );
+        const snapshot = await getDocs(q);
+        const reviewList: Review[] = [];
+        const dist = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        let totalRating = 0;
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const rating = data.rating || 0;
+          reviewList.push({
+            id: doc.id,
+            userId: data.userId,
+            userName: data.userName || "Anonymous",
+            rating,
+            content: data.content || "",
+            createdAt: data.createdAt,
+            helpful: data.helpful || 0,
+          });
+          totalRating += rating;
+          dist[rating as keyof typeof dist]++;
+        });
+        
+        setReviews(reviewList);
+        setAvgRating(reviewList.length ? totalRating / reviewList.length : 0);
+        setRatingDist([
+          { stars: 5, count: dist[5] },
+          { stars: 4, count: dist[4] },
+          { stars: 3, count: dist[3] },
+          { stars: 2, count: dist[2] },
+          { stars: 1, count: dist[1] },
+        ]);
+      } catch (err) {
+        console.error("Error fetching reviews:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchReviews();
+  }, [courseId]);
+
   const total = ratingDist.reduce((s, r) => s + r.count, 0);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+        <Loader size={28} color="#6C63FF" style={{ animation: "spin 0.8s linear infinite" }} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 24, alignItems: "start" }}>
@@ -524,7 +504,7 @@ function ReviewsPanel({ reviews, avgRating, ratingDist }: { reviews: Review[]; a
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           {[5, 4, 3, 2, 1].map((stars) => {
             const entry = ratingDist.find((r) => r.stars === stars);
-            const pct = entry ? Math.round((entry.count / total) * 100) : 0;
+            const pct = entry && total ? Math.round((entry.count / total) * 100) : 0;
             return (
               <div key={stars} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
                 <span style={{ color: "#FFB785", fontWeight: 700, width: 14, textAlign: "right", flexShrink: 0 }}>{stars}</span>
@@ -540,33 +520,40 @@ function ReviewsPanel({ reviews, avgRating, ratingDist }: { reviews: Review[]; a
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {reviews.map((r) => (
-          <div key={r.id} style={{ background: "rgba(26,26,46,.6)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 16, padding: "16px 18px", backdropFilter: "blur(10px)" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg,#6C63FF,#00D4AA)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
-                  {r.userName.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "#E4E1EE" }}>{r.userName}</p>
-                  <p style={{ fontSize: 11, color: "#C7C4D8" }}>{fmtDate(r.createdAt)}</p>
-                </div>
-              </div>
-              <StarRating rating={r.rating} size={13} />
-            </div>
-            <p style={{ fontSize: 13, color: "#C7C4D8", lineHeight: 1.6 }}>{r.comment}</p>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 10, fontSize: 11, color: "#47464f" }}>
-              <Award size={11} /> {r.helpful} found helpful
-            </div>
+        {reviews.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 40, color: "#C7C4D8" }}>
+            <MessageSquare size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
+            <p>No reviews yet.</p>
           </div>
-        ))}
+        ) : (
+          reviews.map((r) => (
+            <div key={r.id} style={{ background: "rgba(26,26,46,.6)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 16, padding: "16px 18px", backdropFilter: "blur(10px)" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg,#6C63FF,#00D4AA)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                    {r.userName.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#E4E1EE" }}>{r.userName}</p>
+                    <p style={{ fontSize: 11, color: "#C7C4D8" }}>{fmtDate(r.createdAt)}</p>
+                  </div>
+                </div>
+                <StarRating rating={r.rating} size={13} />
+              </div>
+              <p style={{ fontSize: 13, color: "#C7C4D8", lineHeight: 1.6 }}>{r.content}</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 10, fontSize: 11, color: "#47464f" }}>
+                <Award size={11} /> {r.helpful} found helpful
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ENROLLMENT CHART
+// ENROLLMENT CHART (Dùng dữ liệu thật từ enrollments)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const ChartTooltip = ({ active, payload, label }: any) => {
@@ -575,20 +562,72 @@ const ChartTooltip = ({ active, payload, label }: any) => {
     <div style={{ background: "rgba(26,26,46,.97)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, padding: "10px 14px", fontSize: 12 }}>
       <p style={{ color: "#C7C4D8", marginBottom: 6, fontWeight: 700 }}>{label}</p>
       <p style={{ color: "#45f1c5" }}>+{payload[0]?.value} students</p>
-      <p style={{ color: "#FFB785", marginTop: 3 }}>${payload[1]?.value?.toLocaleString()} revenue</p>
     </div>
   );
 };
 
-function EnrollmentChart({ data }: { data: EnrollmentPoint[] }) {
+function EnrollmentChart({ courseId }: { courseId: string }) {
+  const [data, setData] = useState<{ date: string; count: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!courseId) return;
+    
+    const fetchEnrollments = async () => {
+      setLoading(true);
+      try {
+        const q = query(
+          collection(db, "enrollments"),
+          where("courseId", "==", courseId),
+          where("isActive", "==", true),
+          orderBy("enrolledAt", "desc")
+        );
+        const snapshot = await getDocs(q);
+        const monthlyMap = new Map<string, number>();
+        const now = new Date();
+        
+        for (let i = 5; i >= 0; i--) {
+          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const key = date.toLocaleString("default", { month: "short" });
+          monthlyMap.set(key, 0);
+        }
+        
+        snapshot.forEach((doc) => {
+          const enrolledAt = doc.data().enrolledAt?.toDate();
+          if (enrolledAt) {
+            const key = enrolledAt.toLocaleString("default", { month: "short" });
+            if (monthlyMap.has(key)) {
+              monthlyMap.set(key, (monthlyMap.get(key) || 0) + 1);
+            }
+          }
+        });
+        
+        const chartData = Array.from(monthlyMap.entries()).map(([date, count]) => ({ date, count }));
+        setData(chartData);
+      } catch (err) {
+        console.error("Error fetching enrollments:", err);
+        setData([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchEnrollments();
+  }, [courseId]);
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+        <Loader size={24} color="#6C63FF" style={{ animation: "spin 0.8s linear infinite" }} />
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#C7C4D8" }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: "#45f1c5", display: "inline-block" }} /> Enrollments
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#C7C4D8" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: "#FFB785", display: "inline-block" }} /> Revenue ($)
         </div>
       </div>
       <ResponsiveContainer width="100%" height={200}>
@@ -598,17 +637,12 @@ function EnrollmentChart({ data }: { data: EnrollmentPoint[] }) {
               <stop offset="5%"  stopColor="#45f1c5" stopOpacity={.3} />
               <stop offset="95%" stopColor="#45f1c5" stopOpacity={0}  />
             </linearGradient>
-            <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#FFB785" stopOpacity={.25} />
-              <stop offset="95%" stopColor="#FFB785" stopOpacity={0}   />
-            </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.04)" vertical={false} />
           <XAxis dataKey="date" tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} />
           <Tooltip content={<ChartTooltip />} cursor={{ stroke: "rgba(255,255,255,.08)", strokeWidth: 1 }} />
-          <Area type="monotone" dataKey="count"   stroke="#45f1c5" strokeWidth={2} fill="url(#gEnroll)" dot={false} activeDot={{ r: 5, fill: "#45f1c5", stroke: "#0F0F1A", strokeWidth: 2 }} />
-          <Area type="monotone" dataKey="revenue" stroke="#FFB785" strokeWidth={2} fill="url(#gRev)"    dot={false} activeDot={{ r: 5, fill: "#FFB785", stroke: "#0F0F1A", strokeWidth: 2 }} />
+          <Area type="monotone" dataKey="count" stroke="#45f1c5" strokeWidth={2} fill="url(#gEnroll)" dot={false} activeDot={{ r: 5, fill: "#45f1c5", stroke: "#0F0F1A", strokeWidth: 2 }} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -662,6 +696,8 @@ export default function CourseDetailAdmin() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [enrollCount, setEnrollCount] = useState<number | null>(null);
+  const [enrollLoading, setEnrollLoading] = useState(true);
 
   useEffect(() => {
     if (!courseId) navigate("/admin/courses");
@@ -669,7 +705,19 @@ export default function CourseDetailAdmin() {
 
   const { data: rawData, loading: courseLoading, error: courseError, refetch } = useDocument<any>("courses", courseId ?? null);
 
-  // ✅ Chuyển đổi dữ liệu từ Firestore (xử lý Timestamp)
+  // Fetch real enrollment count
+  useEffect(() => {
+    const fetchEnrollCount = async () => {
+      if (!courseId) return;
+      setEnrollLoading(true);
+      const count = await getEnrollmentCount(courseId);
+      setEnrollCount(count);
+      setEnrollLoading(false);
+    };
+    fetchEnrollCount();
+  }, [courseId]);
+
+  // Chuyển đổi dữ liệu từ Firestore
   const course = rawData ? {
     id: rawData.id,
     title: rawData.title || "Untitled",
@@ -692,9 +740,6 @@ export default function CourseDetailAdmin() {
     updatedAt: toDate(rawData.updatedAt),
   } : null;
 
-  const { count: enrollCount, loading: enrollLoading } = useEnrollmentCount(courseId ?? "");
-  const { reviews, avgRating, loading: reviewsLoading } = useCourseReviews(courseId ?? "");
-
   const stats = useMemo(() => {
     if (!course) return null;
     const lessons = totalLessonsCount(course.modules);
@@ -703,7 +748,6 @@ export default function CourseDetailAdmin() {
     return { lessons, xp, estRev };
   }, [course, enrollCount]);
 
-  // Loading state
   if (courseLoading) {
     return (
       <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif" }}>
@@ -718,7 +762,6 @@ export default function CourseDetailAdmin() {
     );
   }
 
-  // Error state
   if (courseError || !course) {
     return (
       <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif" }}>
@@ -737,7 +780,7 @@ export default function CourseDetailAdmin() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif", backgroundImage: "radial-gradient(circle at 5% 0%, rgba(108,99,255,.06) 0%, transparent 55%)" }}>
+    <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif" }}>
       <style>{`
         @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
         @keyframes fadeDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
@@ -758,7 +801,6 @@ export default function CourseDetailAdmin() {
             <span style={{ color: "#e3dfff", fontWeight: 600, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.title}</span>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-            {/* ✅ Hiển thị trực tiếp updatedAt, không dùng state lastUpdated */}
             <span style={{ fontSize: 11, color: "#45f1c5", display: "flex", alignItems: "center", gap: 5, fontWeight: 700 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#45f1c5", display: "inline-block", animation: "pulse2 2s infinite" }} />
               Live · {fmtDate(course.updatedAt)}
@@ -839,27 +881,15 @@ export default function CourseDetailAdmin() {
 
         {activeTab === "analytics" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20, animation: "fadeDown .25s ease" }}>
-            <Section title="Enrollment Trend" subtitle="6-month enrollment and revenue data" icon={TrendingUp}>
-              <EnrollmentChart data={MOCK_ENROLLMENT_TREND} />
+            <Section title="Enrollment Trend" subtitle="Monthly enrollment data" icon={TrendingUp}>
+              <EnrollmentChart courseId={course.id} />
             </Section>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
               <Section title="Rating Distribution" subtitle="From reviews collection" icon={Star}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {MOCK_RATING_DIST.map(({ stars, count }) => {
-                    const total = MOCK_RATING_DIST.reduce((s, r) => s + r.count, 0);
-                    const pct = Math.round((count / total) * 100);
-                    return (
-                      <div key={stars} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#FFB785", width: 12, textAlign: "right" }}>{stars}</span>
-                        <Star size={11} color="#FFB785" fill="#FFB785" />
-                        <div style={{ flex: 1, height: 8, borderRadius: 99, background: "rgba(255,255,255,.07)", overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg,#FFB785,#FF8C42)", borderRadius: 99 }} />
-                        </div>
-                        <span style={{ fontSize: 11, color: "#C7C4D8", width: 28 }}>{count}</span>
-                        <span style={{ fontSize: 11, color: "#47464f", width: 30 }}>{pct}%</span>
-                      </div>
-                    );
-                  })}
+                  <p style={{ fontSize: 12, color: "#C7C4D8", textAlign: "center", padding: 20 }}>
+                    Loading rating distribution...
+                  </p>
                 </div>
               </Section>
               <Section title="Completion Funnel" subtitle="Lesson-by-lesson dropout" icon={Activity}>
@@ -885,14 +915,8 @@ export default function CourseDetailAdmin() {
 
         {activeTab === "reviews" && (
           <div style={{ animation: "fadeDown .25s ease" }}>
-            <Section title="Reviews" subtitle={`${fmtNum(course.ratingCount)} total · Firestore: reviews where courseId == "${courseId}"`} icon={MessageSquare}>
-              {reviewsLoading ? (
-                <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
-                  <Loader size={28} color="#6C63FF" style={{ animation: "spin .8s linear infinite" }} />
-                </div>
-              ) : (
-                <ReviewsPanel reviews={reviews} avgRating={avgRating} ratingDist={MOCK_RATING_DIST} />
-              )}
+            <Section title="Reviews" subtitle={`Firestore: reviews where courseId == "${courseId}"`} icon={MessageSquare}>
+              <ReviewsPanel courseId={course.id} />
             </Section>
           </div>
         )}

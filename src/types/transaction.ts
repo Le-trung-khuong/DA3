@@ -44,11 +44,13 @@ export interface PurchasedCourse {
 export interface PaymentLog {
   id: string;
   transactionId: string;
-  action: "callback" | "query" | "refund";
+  action: "callback" | "query" | "refund" | "force_complete";
   requestData: any;
   responseData: any;
   status: "success" | "failed";
   createdAt: Timestamp;
+  errorCode?: number;
+  errorMessage?: string;
 }
 
 export interface AdminAuditLog {

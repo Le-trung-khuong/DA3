@@ -1,7 +1,7 @@
 /**
  * src/services/transactionService.ts
  * Admin transaction operations (refund, force complete, export)
- * Tự động gửi notification khi refund hoặc force complete
+ * Tự động gửi notification và ghi payment log
  */
 
 import { db } from "../utils/config";
@@ -19,12 +19,13 @@ import {
 } from "firebase/firestore";
 import type { Transaction, TransactionStatus } from "../types/transaction";
 import { createEnrollment, deactivateEnrollment } from "./enrollmentService";
-import { sendNotification, broadcastNotification } from "./notificationService";
+import { sendNotification } from "./notificationService";
+import { recordPaymentLog } from "./paymentLogService";
 
 /**
  * Refund a successful transaction (admin only)
  * Updates transaction status, removes purchased course, subtracts XP.
- * Gửi notification refund cho user
+ * Gửi notification refund cho user và ghi payment log
  */
 export async function refundTransaction(
   transactionId: string,
@@ -51,7 +52,7 @@ export async function refundTransaction(
   // 2. Deactivate enrollment (gửi notification bên trong deactivateEnrollment)
   await deactivateEnrollment(txData.userId, txData.courseId, txData.courseName);
 
-  // 3. Remove purchased course (soft delete or hard delete)
+  // 3. Remove purchased course (soft delete)
   const purchasedQuery = query(
     collection(db, "purchasedCourses"),
     where("userId", "==", txData.userId),
@@ -97,7 +98,16 @@ export async function refundTransaction(
 
   await batch.commit();
 
-  // 6. Gửi notification đến user (ngoài batch)
+  // 6. Ghi payment log
+  await recordPaymentLog(
+    transactionId,
+    "refund",
+    { reason, adminId, adminEmail },
+    { status: "refunded", refundedAt: new Date().toISOString() },
+    "success"
+  );
+
+  // 7. Gửi notification đến user
   try {
     await sendNotification(
       txData.userId,
@@ -114,7 +124,7 @@ export async function refundTransaction(
 
 /**
  * Force complete a transaction (manual override when callback fails)
- * Gửi notification payment_success cho user
+ * Gửi notification payment_success cho user và ghi payment log
  */
 export async function forceCompleteTransaction(
   transactionId: string,
@@ -172,7 +182,16 @@ export async function forceCompleteTransaction(
 
   await batch.commit();
 
-  // Gửi thêm notification payment_success (createEnrollment đã gửi course_enrolled)
+  // Ghi payment log
+  await recordPaymentLog(
+    transactionId,
+    "force_complete",
+    { adminId, adminEmail },
+    { status: "success", paidAt: new Date().toISOString() },
+    "success"
+  );
+
+  // Gửi thêm notification payment_success
   try {
     await sendNotification(
       txData.userId,
