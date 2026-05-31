@@ -3,6 +3,7 @@
  * Chi tiết khóa học (modules & lessons) + progress tracking + reviews + sửa/xóa review
  * Tích hợp realtime enrollment (useUserEnrollment)
  * Xử lý enroll miễn phí (price === 0) không qua payment flow.
+ * Tự động gửi notification khi enroll thành công
  */
 
 "use client";
@@ -160,7 +161,8 @@ export default function CourseDetail() {
       return;
     }
     try {
-      await createEnrollment(currentUser.uid, course!.id, "free_course");
+      // Truyền thêm course!.title để hiển thị trong notification
+      await createEnrollment(currentUser.uid, course!.id, "free_course", course!.title);
       alert("Successfully enrolled! Redirecting to learning...");
       // Chuyển đến bài học đầu tiên của khóa học
       const firstModule = course!.modules[0];

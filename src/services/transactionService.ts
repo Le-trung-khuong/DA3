@@ -1,6 +1,7 @@
 /**
  * src/services/transactionService.ts
  * Admin transaction operations (refund, force complete, export)
+ * Tự động gửi notification khi refund hoặc force complete
  */
 
 import { db } from "../utils/config";
@@ -17,12 +18,13 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import type { Transaction, TransactionStatus } from "../types/transaction";
-import { createEnrollment } from "./enrollmentService";
-import { deactivateEnrollment } from "./enrollmentService";
+import { createEnrollment, deactivateEnrollment } from "./enrollmentService";
+import { sendNotification, broadcastNotification } from "./notificationService";
 
 /**
  * Refund a successful transaction (admin only)
  * Updates transaction status, removes purchased course, subtracts XP.
+ * Gửi notification refund cho user
  */
 export async function refundTransaction(
   transactionId: string,
@@ -46,9 +48,10 @@ export async function refundTransaction(
     updatedAt: serverTimestamp(),
   });
 
-  await deactivateEnrollment(txData.userId, txData.courseId);
+  // 2. Deactivate enrollment (gửi notification bên trong deactivateEnrollment)
+  await deactivateEnrollment(txData.userId, txData.courseId, txData.courseName);
 
-  // 2. Remove purchased course (soft delete or hard delete)
+  // 3. Remove purchased course (soft delete or hard delete)
   const purchasedQuery = query(
     collection(db, "purchasedCourses"),
     where("userId", "==", txData.userId),
@@ -58,19 +61,18 @@ export async function refundTransaction(
   const purchasedSnap = await getDocs(purchasedQuery);
   if (!purchasedSnap.empty) {
     const purchasedRef = purchasedSnap.docs[0].ref;
-    batch.update(purchasedRef, { isActive: false }); // soft delete
+    batch.update(purchasedRef, { isActive: false });
   }
 
-  // 3. Subtract XP (optional, adjust multiplier as needed)
+  // 4. Subtract XP
   const userRef = doc(db, "users", txData.userId);
   const userSnap = await getDoc(userRef);
   if (userSnap.exists()) {
-    const xpToSubtract = Math.floor(txData.amount * 10); // example: $1 = 10 XP
+    const xpToSubtract = Math.floor(txData.amount * 10);
     batch.update(userRef, {
       totalXP: (userSnap.data().totalXP || 0) - xpToSubtract,
       updatedAt: serverTimestamp(),
     });
-    // Add negative XP log
     const logRef = doc(collection(db, "xp_logs"));
     batch.set(logRef, {
       userId: txData.userId,
@@ -82,7 +84,7 @@ export async function refundTransaction(
     });
   }
 
-  // 4. Audit log
+  // 5. Audit log
   const auditRef = doc(collection(db, "adminAuditLogs"));
   batch.set(auditRef, {
     adminId,
@@ -94,10 +96,25 @@ export async function refundTransaction(
   });
 
   await batch.commit();
+
+  // 6. Gửi notification đến user (ngoài batch)
+  try {
+    await sendNotification(
+      txData.userId,
+      "refund",
+      "💰 Hoàn tiền thành công",
+      `Giao dịch ${txData.courseName} đã được hoàn tiền. Lý do: ${reason}`,
+      `/courses/${txData.courseId}`,
+      { transactionId, courseId: txData.courseId }
+    );
+  } catch (err) {
+    console.error("Failed to send refund notification:", err);
+  }
 }
 
 /**
  * Force complete a transaction (manual override when callback fails)
+ * Gửi notification payment_success cho user
  */
 export async function forceCompleteTransaction(
   transactionId: string,
@@ -128,7 +145,8 @@ export async function forceCompleteTransaction(
     isActive: true,
   });
 
-  await createEnrollment(txData.userId, txData.courseId, transactionId);
+  // Tạo enrollment (hàm này sẽ gửi notification bên trong)
+  await createEnrollment(txData.userId, txData.courseId, transactionId, txData.courseName);
 
   // Add XP for user
   const userRef = doc(db, "users", txData.userId);
@@ -153,6 +171,20 @@ export async function forceCompleteTransaction(
   });
 
   await batch.commit();
+
+  // Gửi thêm notification payment_success (createEnrollment đã gửi course_enrolled)
+  try {
+    await sendNotification(
+      txData.userId,
+      "payment_success",
+      "✅ Thanh toán thành công",
+      `Bạn đã thanh toán thành công khóa học "${txData.courseName}".`,
+      `/courses/${txData.courseId}`,
+      { transactionId, courseId: txData.courseId, amount: txData.amount }
+    );
+  } catch (err) {
+    console.error("Failed to send payment success notification:", err);
+  }
 }
 
 /**

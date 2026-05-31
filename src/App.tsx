@@ -13,12 +13,14 @@ import TransactionListAdmin from './pages/admin/transactions/TransactionListAdmi
 import LeaderboardAdmin from './pages/admin/leaderboard/LeaderboardAdmin';
 import NotificationAdmin from './pages/admin/notifications/NotificationAdmin';
 import CommunityAdmin from './pages/admin/community/CommunityAdmin';
+import DashboardAdmin from "./pages/admin/dashboard/DashboardAdmin";
 
 // Client pages
 import LayoutClient from './layout/LayoutClient';
 import CourseCatalog from './pages/client/CourseCatalog';
 import CourseDetail from './pages/client/CourseDetail';
-import LessonPlayer from './pages/client/LessonPlayer';           // ✅ SỬA: dùng component thật
+import LessonPlayer from './pages/client/LessonPlayer';
+import NotificationsPage from './pages/client/NotificationsPage';
 import ReviewListAdmin from './pages/admin/reviews/ReviewListAdmin';
 import ChatRooms from './pages/client/ChatRooms';
 import ChatRoom from './pages/client/ChatRoom';
@@ -47,12 +49,13 @@ function App() {
             <Route path="learn/:courseId/:moduleId/:lessonId" element={<LessonPlayer />} />
             <Route path="chat" element={<ChatRooms />} />
             <Route path="chat/:roomId" element={<ChatRoom />} />
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           {/* Admin routes */}
           <Route path="/" element={<LayoutAdmin />}>
-            <Route index element={<PlaceholderPage title="Dashboard" />} />
-            <Route path="admin/dashboard" element={<PlaceholderPage title="Dashboard" />} />
+            <Route index element={<DashboardAdmin />} />
+            <Route path="admin/dashboard" element={<DashboardAdmin />} />
             <Route path="admin/analytics" element={<PlaceholderPage title="Analytics" />} />
             <Route path="admin/revenue" element={<PlaceholderPage title="Revenue" />} />
             <Route path="admin/settings" element={<PlaceholderPage title="Settings" />} />
@@ -69,6 +72,9 @@ function App() {
 
             {/* Reviews */}
             <Route path="admin/reviews" element={<ReviewListAdmin />} />
+
+            {/* Dashboard */}
+            <Route path="/admin/dashboard" element={<DashboardAdmin />} />
 
             {/* Transactions */}
             <Route path="admin/transactions" element={<TransactionListAdmin />} />
