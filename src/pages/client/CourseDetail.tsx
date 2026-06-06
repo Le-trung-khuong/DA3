@@ -2,8 +2,7 @@
  * src/pages/client/CourseDetail.tsx
  * Chi tiết khóa học (modules & lessons) + progress tracking + reviews + sửa/xóa review
  * Tích hợp realtime enrollment (useUserEnrollment)
- * Xử lý enroll miễn phí (price === 0) không qua payment flow.
- * Tự động gửi notification khi enroll thành công
+ * Xử lý enroll miễn phí (price === 0) và thanh toán PayOS (price > 0)
  */
 
 "use client";
@@ -25,6 +24,8 @@ import {
 import { ReviewForm } from "../../components/client/ReviewForm";
 import { ReviewList } from "../../components/client/ReviewList";
 import { createEnrollment } from "../../services/enrollmentService";
+import { createPayOSOrder } from "../../services/payosService";
+import PaymentModal from "./PaymentModal";
 import type { Review } from "../../types/review";
 import {
   Clock,
@@ -100,6 +101,12 @@ export default function CourseDetail() {
   const [editRating, setEditRating] = useState(0);
   const [editContent, setEditContent] = useState("");
 
+  // Payment modal
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentTransactionId, setPaymentTransactionId] = useState<string | null>(null);
+  const [paymentCheckoutUrl, setPaymentCheckoutUrl] = useState("");
+  const [paymentQrCode, setPaymentQrCode] = useState("");
+
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>(
     "courses",
     courseId
@@ -161,21 +168,43 @@ export default function CourseDetail() {
       return;
     }
     try {
-      // Truyền thêm course!.title để hiển thị trong notification
       await createEnrollment(currentUser.uid, course!.id, "free_course", course!.title);
       alert("Successfully enrolled! Redirecting to learning...");
-      // Chuyển đến bài học đầu tiên của khóa học
       const firstModule = course!.modules[0];
       const firstLesson = firstModule?.lessons[0];
       if (firstModule && firstLesson) {
         navigate(`/learn/${course!.id}/${firstModule.id}/${firstLesson.id}`);
       } else {
-        navigate(`/courses/${course!.id}`); // fallback
+        navigate(`/courses/${course!.id}`);
       }
     } catch (err) {
       console.error("Free enrollment error:", err);
       alert("Enrollment failed. Please try again.");
     }
+  };
+
+  const handlePaidEnroll = async () => {
+    if (!currentUser) {
+      alert("Please login to purchase.");
+      return;
+    }
+    try {
+      const order = await createPayOSOrder(currentUser.uid, course!.id);
+      setPaymentTransactionId(order.transactionId);
+      setPaymentCheckoutUrl(order.checkoutUrl);
+      setPaymentQrCode(order.qrCode);
+      setPaymentModalOpen(true);
+    } catch (err: any) {
+      console.error("Payment order error:", err);
+      alert(err.message || "Cannot create payment order. Please try again.");
+    }
+  };
+
+  const handlePaymentSuccess = () => {
+    setPaymentModalOpen(false);
+    // Realtime hook `useUserEnrollment` sẽ tự cập nhật isEnrolled
+    // Có thể reload để làm mới UI
+    window.location.reload();
   };
 
   const handleSubmitReview = async (rating: number, content: string) => {
@@ -307,11 +336,7 @@ export default function CourseDetail() {
                       color: "#fff",
                       cursor: "pointer",
                     }}
-                    onClick={() =>
-                      alert(
-                        "Payment gateway will be integrated soon. For testing, please use admin force-complete transaction or manually add enrollment."
-                      )
-                    }
+                    onClick={handlePaidEnroll}
                   >
                     Buy Now • ${course.price}
                   </button>
@@ -627,6 +652,16 @@ export default function CourseDetail() {
           </div>
         </div>
       )}
+
+      {/* Payment Modal */}
+      <PaymentModal
+        isOpen={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+        transactionId={paymentTransactionId}
+        checkoutUrl={paymentCheckoutUrl}
+        qrCode={paymentQrCode}
+        onSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 }

@@ -3,3 +3,5 @@ dist
 .env
 .env.local
 .firebase
+.vercel
+api/_lib/serviceAccountKey.json
