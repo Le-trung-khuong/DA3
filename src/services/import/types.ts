@@ -31,3 +31,5 @@ export interface QuizColumnMapping {
   correctCol: number;       // index cột chứa đáp án đúng (A, B, C, D hoặc nội dung option)
   explanationCol?: number;  // index cột chứa giải thích (tuỳ chọn)
 }
+
+export type { FlashcardCard, QuizQuestion } from "../../types/lesson";

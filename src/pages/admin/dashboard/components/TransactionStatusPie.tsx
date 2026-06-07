@@ -37,10 +37,10 @@ interface CustomTooltipProps {
   }>;
 }
 
-function CustomTooltip({ active, payload }: CustomTooltipProps) {
+function CustomTooltip({ active, payload, total }: any) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
-    const percent = (payload[0].value / (payload[0].payload.total || 1)) * 100;
+    const percent = (payload[0].value / total) * 100;
     return (
       <div
         style={{

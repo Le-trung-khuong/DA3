@@ -6,6 +6,7 @@
 import React, { useEffect } from "react";
 import { X, Loader, CheckCircle, XCircle } from "lucide-react";
 import { usePaymentStatus } from "../../hooks/usePaymentStatus";
+import { QRCodeSVG } from "qrcode.react";
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -115,12 +116,27 @@ export default function PaymentModal({
           <>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               {qrCode && (
-                <img
-                  src={qrCode}
-                  alt="QR Code"
-                  style={{ width: 200, height: 200, margin: "0 auto", borderRadius: 12 }}
-                />
-              )}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: "#fff",
+                        padding: 12,
+                        borderRadius: 12,
+                      }}
+                    >
+                      <QRCodeSVG
+                        value={qrCode}
+                        size={220}
+                      />
+                    </div>
+                  </div>
+                )}
               <p style={{ marginTop: 12, fontSize: 13, color: "#C7C4D8" }}>
                 Quét mã QR bằng ứng dụng ngân hàng hoặc chuyển khoản
               </p>

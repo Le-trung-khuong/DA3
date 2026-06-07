@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, RotateCw, CheckCircle } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
-import { updateFlashcardProgress } from "../../services/progressService";
+import { saveFlashcardProgress } from "../../services/progressService";
 
 interface FlashcardCard {
   id: string;
@@ -45,33 +45,35 @@ export function FlashcardLesson({
     return 0;
   });
   const [flipped, setFlipped] = useState(false);
-  const [remembered, setRemembered] = useState<Set<string>>(() => {
-    if (savedProgress && savedProgress.rememberedCards) {
-      // We need to know which cards were remembered; we'll track by index as string
-      // For simplicity, we'll store remembered indices as a Set of string ids or indices.
-      // Here we'll use remembered card ids.
-      return new Set();
-    }
-    return new Set();
-  });
+  const [remembered, setRemembered] = useState<Set<string>>(() => new Set());
   const [progressSaved, setProgressSaved] = useState(false);
 
   const currentCard = cards[currentIndex];
   const totalCards = cards.length;
   const rememberedCount = remembered.size;
 
+  // Auto-save progress when remembered set changes or index changes
   useEffect(() => {
-    // Auto-save progress when remembered set changes or index changes
     const saveProgress = async () => {
       if (progressSaved) return;
-      await updateFlashcardProgress(userId, courseId, moduleId, lessonId, {
-        totalCards,
-        rememberedCards: rememberedCount,
-        lastCardIndex: currentIndex,
-      });
+      // Build FlashcardProgress object as expected by service
+      const flashcardProgress = {
+        lessonId,
+        cards: Object.fromEntries(
+          cards.map(card => [card.id, {
+            mastered: remembered.has(card.id),
+            timesReviewed: remembered.has(card.id) ? 1 : 0,
+            lastReviewedAt: remembered.has(card.id) ? new Date() : new Date(0),
+          }])
+        ),
+        masteredCount: rememberedCount,
+        totalCount: totalCards,
+        lastActivityAt: new Date(),
+      };
+      await saveFlashcardProgress(userId, courseId, moduleId, lessonId, flashcardProgress);
     };
     saveProgress();
-  }, [rememberedCount, currentIndex, userId, courseId, moduleId, lessonId, totalCards, progressSaved]);
+  }, [rememberedCount, currentIndex, userId, courseId, moduleId, lessonId, totalCards, progressSaved, cards, lessonId, remembered]);
 
   const handleFlip = () => setFlipped(!flipped);
 
@@ -81,7 +83,6 @@ export function FlashcardLesson({
       next.add(currentCard.id);
       return next;
     });
-    // Move to next card
     if (currentIndex + 1 < totalCards) {
       setCurrentIndex(currentIndex + 1);
       setFlipped(false);
@@ -118,7 +119,6 @@ export function FlashcardLesson({
           moduleId={moduleId}
           lessonId={lessonId}
           xpReward={xpReward}
-          flashcardProgress={{ totalCards, rememberedCards: rememberedCount, lastCardIndex: currentIndex }}
           onComplete={onComplete}
         />
       </div>

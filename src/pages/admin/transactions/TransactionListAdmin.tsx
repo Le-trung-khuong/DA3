@@ -39,21 +39,7 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────
 type TxStatus = "pending" | "processing" | "success" | "failed" | "refunded" | "cancelled";
 
-interface Transaction {
-  id: string;
-  userId: string;
-  userName: string;
-  userEmail: string;
-  courseId: string;
-  courseName: string;
-  amount: number;
-  status: TxStatus;
-  paymentMethod: string;
-  createdAt: any;
-  paidAt?: any;
-  refundedAt?: any;
-  refundReason?: string;
-}
+import type { Transaction } from "../../../types/transaction";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 const fmtDate = (timestamp: any) => {

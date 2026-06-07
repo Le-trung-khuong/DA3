@@ -2,11 +2,11 @@
 import 'dotenv/config';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
-import { db, Timestamp } from './_lib/firebase-admin';
+import { db, Timestamp } from './_lib/firebase-admin.js';
 import {
   generatePayOSSignature,
   type PayOSSignatureData,
-} from './_lib/payos-utils';
+} from './_lib/payos-utils.js';
 
 import dotenv from 'dotenv';
 

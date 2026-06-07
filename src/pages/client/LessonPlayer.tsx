@@ -92,7 +92,7 @@ export default function LessonPlayer() {
     );
   }
 
-  const completed = isLessonCompleted(moduleId, lessonId);
+  const completed = moduleId && lessonId ? isLessonCompleted(moduleId, lessonId) : false;
 
   // Prepare data for quiz: content may be nested
   let quizQuestions = [];
@@ -110,9 +110,11 @@ export default function LessonPlayer() {
   let flashcardCards = [];
   let flashcardProgress = undefined;
   if (lesson.type === "flashcard" && lesson.content?.type === "flashcard") {
-    flashcardCards = lesson.content.data.cards || [];
+  flashcardCards = lesson.content.data.cards || [];
+  if (moduleId && lessonId) {
     flashcardProgress = getFlashcardProgress(moduleId, lessonId);
   }
+}
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", padding: "24px" }}>

@@ -14,7 +14,8 @@ import React, {
   useRef,
   type ReactNode,
 } from "react";
-import type { User, FirebaseError } from "firebase/auth";
+import type { User } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { auth, db } from "../utils/config";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";

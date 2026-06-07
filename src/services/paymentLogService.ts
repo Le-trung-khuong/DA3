@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   Timestamp,
   limit,
+  writeBatch,
 } from "firebase/firestore";
 import type { PaymentLog } from "../types/transaction";
 
@@ -103,7 +104,7 @@ export async function deleteOldLogs(daysOld = 90): Promise<void> {
     orderBy("createdAt", "desc")
   );
   const snapshot = await getDocs(q);
-  const batch = db.batch();
+  const batch = writeBatch(db);
   snapshot.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
 }

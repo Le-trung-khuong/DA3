@@ -105,21 +105,25 @@ export function ReadingLesson({
                 {children}
               </a>
             ),
-            // Code inline / block
-            code: ({ children, inline }) =>
-              inline ? (
-                <code
-                  style={{
-                    background: "rgba(108,99,255,0.15)",
-                    padding: "2px 6px",
-                    borderRadius: 6,
-                    fontSize: 14,
-                    color: "#c4c0ff",
-                  }}
-                >
-                  {children}
-                </code>
-              ) : (
+            // Code inline / block – sửa lỗi TypeScript bằng cách nhận toàn bộ props
+            code: (props: any) => {
+              const { children, inline, className, ...rest } = props;
+              if (inline) {
+                return (
+                  <code
+                    style={{
+                      background: "rgba(108,99,255,0.15)",
+                      padding: "2px 6px",
+                      borderRadius: 6,
+                      fontSize: 14,
+                      color: "#c4c0ff",
+                    }}
+                  >
+                    {children}
+                  </code>
+                );
+              }
+              return (
                 <pre
                   style={{
                     background: "#0d0d18",
@@ -132,7 +136,8 @@ export function ReadingLesson({
                 >
                   <code style={{ fontSize: 13, color: "#E4E1EE" }}>{children}</code>
                 </pre>
-              ),
+              );
+            },
             // Blockquote
             blockquote: ({ children }) => (
               <blockquote

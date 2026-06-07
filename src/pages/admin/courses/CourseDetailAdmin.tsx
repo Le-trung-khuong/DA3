@@ -894,7 +894,10 @@ export default function CourseDetailAdmin() {
               </Section>
               <Section title="Completion Funnel" subtitle="Lesson-by-lesson dropout" icon={Activity}>
                 <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={course.modules?.map((_, i) => ({ name: `M${i + 1}`, rate: 95 - i * 8 })) || []} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <BarChart 
+                    data={course.modules?.map((_: any, i: number) => ({ name: `M${i + 1}`, rate: 95 - i * 8 })) || []} 
+                    margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.04)" vertical={false} />
                     <XAxis dataKey="name" tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />

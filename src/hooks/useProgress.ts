@@ -32,7 +32,7 @@ export function useProgress(userId: string | undefined, courseId: string | undef
         const data = snapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
-        })) as Progress[];
+        })) as unknown as Progress[];
         setProgress(data);
         setLoading(false);
         setError(null);

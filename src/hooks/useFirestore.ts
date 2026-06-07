@@ -12,8 +12,8 @@ import {
   query, QueryConstraint, startAfter, limit,
   DocumentSnapshot, QuerySnapshot,
   DocumentData, Query, CollectionReference,
-  type FirebaseError,
 } from "firebase/firestore";
+import { FirebaseError } from "firebase/app";
 
 export interface FirestoreState<T> {
   data: T | null;
@@ -30,7 +30,7 @@ export interface FirestoreListState<T> {
 }
 
 // useDocument – realtime
-export function useDocument<T extends Record<string, unknown>>(
+export function useDocument<T extends Record<string, any>>(
   collectionPath: string,
   docId: string | null | undefined,
 ): FirestoreState<T & { id: string }> {
@@ -74,7 +74,7 @@ export function useDocument<T extends Record<string, unknown>>(
 }
 
 // useCollection – realtime với query constraints
-export function useCollection<T extends Record<string, unknown>>(
+export function useCollection<T extends Record<string, any>>(
   collectionPath: string,
   constraints: QueryConstraint[] = [],
   deps: DependencyList = [],
@@ -164,7 +164,7 @@ export function usePaginatedQuery<T extends Record<string, unknown>>(
 }
 
 // useDocumentOnce
-export function useDocumentOnce<T extends Record<string, unknown>>(
+export function useDocumentOnce<T extends Record<string, any>>(
   collectionPath: string,
   docId: string | null | undefined,
 ): FirestoreState<T & { id: string }> {
@@ -215,7 +215,7 @@ export function useCollectionOnce<T extends Record<string, unknown>>(
     const q = query(ref, ...constraints);
     getDocs(q)
       .then((snap) => {
-        setData(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setData(snap.docs.map((d) => ({ id: d.id, ...d.data() } as T & { id: string })));
         setLoading(false);
       })
       .catch((err) => {

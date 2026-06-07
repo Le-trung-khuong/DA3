@@ -5,7 +5,9 @@
 
 import { Timestamp } from "firebase/firestore";
 
-export type NotificationType = "payment_success" | "payment_failed" | "refund" | "admin_warning" | "system";
+export type NotificationType = "payment_success" | "payment_failed" | "refund" | "admin_warning" | "system"| "course_enrolled"        // ✅ thêm
+  | "admin_announcement"
+  | "community_message";
 
 export interface Notification {
   id: string;

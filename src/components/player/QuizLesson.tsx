@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { CheckCircle, XCircle } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveQuizAttempt } from "../../services/progressService";
 
@@ -50,13 +50,11 @@ export function QuizLesson({
   };
 
   const handleSubmit = async () => {
-    // Check if all questions answered
     if (Object.keys(answers).length !== questions.length) {
       alert("Please answer all questions before submitting.");
       return;
     }
 
-    // Calculate score
     let correctCount = 0;
     questions.forEach((q) => {
       if (answers[q.id] === q.correctOptionIndex) correctCount++;
@@ -68,20 +66,19 @@ export function QuizLesson({
     setPassed(isPassed);
     setSubmitted(true);
 
-    // Save attempt to Firestore
-    await saveQuizAttempt({
-      userId,
-      courseId,
+    // Save quiz attempt
+    const attempt = {
       lessonId,
+      startedAt: new Date(),
+      completedAt: new Date(),
+      score: calculatedScore,
       answers: Object.entries(answers).map(([questionId, selectedOptionIndex]) => ({
         questionId,
         selectedOptionIndex,
+        isCorrect: questions.find(q => q.id === questionId)?.correctOptionIndex === selectedOptionIndex,
       })),
-      score: calculatedScore,
-      passed: isPassed,
-      startedAt: new Date(),
-      completedAt: new Date(),
-    });
+    };
+    await saveQuizAttempt(userId, courseId, moduleId, lessonId, attempt);
   };
 
   if (submitted) {
@@ -123,7 +120,6 @@ export function QuizLesson({
               moduleId={moduleId}
               lessonId={lessonId}
               xpReward={xpReward}
-              quizScore={score}
               onComplete={onComplete}
             />
           </div>

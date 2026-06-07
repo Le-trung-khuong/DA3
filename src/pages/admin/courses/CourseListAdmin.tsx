@@ -418,13 +418,13 @@ export default function CourseListAdmin() {
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ fontWeight: 600, color: "#E4E1EE", marginBottom: 4 }}>{course.title}</div>
                       <div style={{ display: "flex", gap: 8, fontSize: 11, color: "#C7C4D8" }}>
-                        {course.rating > 0 && (
+                        {course.rating && course.rating > 0 && (
                           <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
                             <Star size={11} color="#FFB785" fill="#FFB785" /> {course.rating.toFixed(1)}
                           </span>
                         )}
                         <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Layers size={11} /> {course.modulesCount} modules</span>
-                        {course.durationHours > 0 && (
+                        {course.durationHours && course.durationHours > 0 && (
                           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Clock size={11} /> {course.durationHours}h</span>
                         )}
                       </div>

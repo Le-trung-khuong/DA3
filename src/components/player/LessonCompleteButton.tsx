@@ -13,8 +13,6 @@ interface LessonCompleteButtonProps {
   moduleId: string;
   lessonId: string;
   xpReward: number;
-  quizScore?: number;
-  flashcardProgress?: { totalCards: number; rememberedCards: number; lastCardIndex: number };
   onComplete?: () => void;
   disabled?: boolean;
 }
@@ -25,8 +23,6 @@ export function LessonCompleteButton({
   moduleId,
   lessonId,
   xpReward,
-  quizScore,
-  flashcardProgress,
   onComplete,
   disabled = false,
 }: LessonCompleteButtonProps) {
@@ -37,15 +33,7 @@ export function LessonCompleteButton({
     if (loading || completed || disabled) return;
     setLoading(true);
     try {
-      await completeLesson(
-        userId,
-        courseId,
-        moduleId,
-        lessonId,
-        xpReward,
-        quizScore,
-        flashcardProgress
-      );
+      await completeLesson(userId, courseId, moduleId, lessonId, xpReward);
       setCompleted(true);
       onComplete?.();
     } catch (error) {

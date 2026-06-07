@@ -1,108 +1,335 @@
 /**
  * src/services/progressService.ts
- * Các hàm cập nhật progress và XP
+ * Quản lý tiến trình học tập của user (lesson, quiz, flashcard)
  */
 
 import { db } from "../utils/config";
 import {
-  doc, setDoc, updateDoc, increment, serverTimestamp, Timestamp,
-  getDoc, collection, query, where, getDocs,
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  serverTimestamp,
+  Timestamp,
+  writeBatch,
 } from "firebase/firestore";
-import { Progress, QuizAttempt } from "../types/progress";
+
+// ============ TYPES ============
+
+export interface LessonProgress {
+  id: string;
+  userId: string;
+  courseId: string;
+  moduleId: string;
+  lessonId: string;
+  status: "not_started" | "in_progress" | "completed";
+  startedAt?: Timestamp;
+  completedAt?: Timestamp;
+  lastActivityAt: Timestamp;
+  xpEarned: number;
+}
+
+export interface QuizAttempt {
+  lessonId: string;
+  startedAt: Date;
+  completedAt: Date;
+  score: number;
+  answers: Array<{ questionId: string; selectedOptionIndex: number; isCorrect: boolean }>;
+}
+
+export interface FlashcardProgress {
+  lessonId: string;
+  cards: Record<string, { mastered: boolean; timesReviewed: number; lastReviewedAt: Date }>;
+  masteredCount: number;
+  totalCount: number;
+  lastActivityAt: Date;
+}
+
+// ============ QUIZ PROGRESS ============
 
 /**
- * Lấy progress của user cho một course (realtime sẽ dùng hook riêng)
- * Hàm này dùng để đọc một lần
+ * Lưu hoặc cập nhật kết quả quiz của user
+ * @param userId - ID người dùng
+ * @param courseId - ID khóa học
+ * @param moduleId - ID module
+ * @param lessonId - ID bài học (quiz)
+ * @param attempt - Dữ liệu lần làm quiz (đã sửa type: không dùng Omit)
  */
-export async function getCourseProgress(userId: string, courseId: string): Promise<Progress[]> {
-  const q = query(
-    collection(db, "progress"),
-    where("userId", "==", userId),
-    where("courseId", "==", courseId)
+export async function saveQuizAttempt(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string,
+  attempt: QuizAttempt
+): Promise<void> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const progressRef = doc(db, "progress", progressId);
+
+  const existing = await getDoc(progressRef);
+  const existingData = existing.exists() ? existing.data() : null;
+  const prevAttempts: QuizAttempt[] = existingData?.quizAttempts || [];
+
+  const updatedAttempts = [...prevAttempts, attempt];
+  const bestScore = Math.max(
+    ...updatedAttempts.map((a) => a.score),
+    existingData?.quizScore || 0
   );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)) as Progress[];
+
+  const updateData: any = {
+    userId,
+    courseId,
+    moduleId,
+    lessonId,
+    lessonType: "quiz",
+    quizScore: bestScore,
+    quizAttempts: updatedAttempts,
+    status: "completed",
+    lastActivityAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (!existing.exists()) {
+    updateData.createdAt = serverTimestamp();
+    updateData.startedAt = serverTimestamp();
+    updateData.completedAt = serverTimestamp();
+  } else {
+    if (existingData?.status !== "completed") {
+      updateData.completedAt = serverTimestamp();
+    }
+  }
+
+  await setDoc(progressRef, updateData, { merge: true });
 }
 
 /**
- * Đánh dấu lesson hoàn thành và cộng XP
+ * Lấy điểm quiz tốt nhất của user cho một lesson
+ */
+export async function getBestQuizScore(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string
+): Promise<number | null> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const docSnap = await getDoc(doc(db, "progress", progressId));
+  if (docSnap.exists()) {
+    return docSnap.data().quizScore || null;
+  }
+  return null;
+}
+
+// ============ FLASHCARD PROGRESS ============
+
+/**
+ * Lưu tiến trình học flashcard
+ */
+export async function saveFlashcardProgress(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string,
+  progress: FlashcardProgress
+): Promise<void> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const progressRef = doc(db, "progress", progressId);
+
+  const existing = await getDoc(progressRef);
+  const updateData: any = {
+    userId,
+    courseId,
+    moduleId,
+    lessonId,
+    lessonType: "flashcard",
+    flashcardProgress: {
+      cards: progress.cards,
+      masteredCount: progress.masteredCount,
+      totalCount: progress.totalCount,
+      lastActivityAt: Timestamp.fromDate(progress.lastActivityAt),
+    },
+    lastActivityAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (!existing.exists()) {
+    updateData.createdAt = serverTimestamp();
+    updateData.startedAt = serverTimestamp();
+  }
+
+  // Nếu đã mastered toàn bộ, đánh dấu completed
+  if (progress.masteredCount === progress.totalCount && progress.totalCount > 0) {
+    updateData.status = "completed";
+    updateData.completedAt = serverTimestamp();
+  } else {
+    updateData.status = "in_progress";
+  }
+
+  await setDoc(progressRef, updateData, { merge: true });
+}
+
+/**
+ * Lấy tiến trình flashcard
+ */
+export async function getFlashcardProgress(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string
+): Promise<FlashcardProgress | null> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const docSnap = await getDoc(doc(db, "progress", progressId));
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    if (data.flashcardProgress) {
+      const fp = data.flashcardProgress;
+      return {
+        lessonId,
+        cards: fp.cards,
+        masteredCount: fp.masteredCount,
+        totalCount: fp.totalCount,
+        lastActivityAt: fp.lastActivityAt?.toDate() || new Date(),
+      };
+    }
+  }
+  return null;
+}
+
+// ============ LESSON PROGRESS (GENERAL) ============
+
+/**
+ * Đánh dấu bài học (video, reading) đã hoàn thành và cộng XP
  */
 export async function completeLesson(
   userId: string,
   courseId: string,
   moduleId: string,
   lessonId: string,
-  xpReward: number,
-  quizScore?: number,
-  flashcardProgress?: { totalCards: number; rememberedCards: number; lastCardIndex: number }
+  xpReward: number
 ): Promise<void> {
-  const progressRef = doc(
-    db,
-    "progress",
-    `${userId}_${courseId}_${moduleId}_${lessonId}`
-  );
-  
-  await setDoc(
-    progressRef,
-    {
-      userId,
-      courseId,
-      moduleId,
-      lessonId,
-      status: "completed",
-      completedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      ...(quizScore !== undefined && { quizScore }),
-      ...(flashcardProgress && { flashcardProgress }),
-    },
-    { merge: true }
-  );
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const progressRef = doc(db, "progress", progressId);
 
-  // Cộng XP vào user document
+  const existing = await getDoc(progressRef);
+  if (existing.exists() && existing.data().status === "completed") {
+    // Đã hoàn thành trước đó, không cộng XP lại
+    return;
+  }
+
+  const updateData: any = {
+    userId,
+    courseId,
+    moduleId,
+    lessonId,
+    lessonType: "lesson",
+    status: "completed",
+    xpEarned: xpReward,
+    completedAt: serverTimestamp(),
+    lastActivityAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (!existing.exists()) {
+    updateData.createdAt = serverTimestamp();
+    updateData.startedAt = serverTimestamp();
+  }
+
+  await setDoc(progressRef, updateData, { merge: true });
+
+  // Cộng XP vào user
   const userRef = doc(db, "users", userId);
   await updateDoc(userRef, {
-    totalXP: increment(xpReward),
+    totalXP: (await getDoc(userRef)).data()?.totalXP + xpReward || xpReward,
     updatedAt: serverTimestamp(),
   });
 }
 
 /**
- * Lưu kết quả làm quiz (chi tiết)
+ * Lấy tiến trình của một lesson (kiểm tra đã hoàn thành chưa)
  */
-export async function saveQuizAttempt(attempt: Omit<QuizAttempt, "startedAt" | "completedAt">): Promise<void> {
-  const attemptRef = doc(collection(db, "quiz_attempts"));
-  await setDoc(attemptRef, {
-    ...attempt,
-    startedAt: Timestamp.fromDate(attempt.startedAt),
-    completedAt: Timestamp.fromDate(attempt.completedAt),
-  });
-}
-
-/**
- * Cập nhật progress flashcard (không hoàn thành hẳn)
- */
-export async function updateFlashcardProgress(
+export async function isLessonCompleted(
   userId: string,
   courseId: string,
   moduleId: string,
-  lessonId: string,
-  flashcardProgress: { totalCards: number; rememberedCards: number; lastCardIndex: number }
+  lessonId: string
+): Promise<boolean> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const docSnap = await getDoc(doc(db, "progress", progressId));
+  return docSnap.exists() && docSnap.data().status === "completed";
+}
+
+/**
+ * Lấy tất cả progress của user trong một khóa học (dùng cho realtime hook)
+ */
+export async function getCourseProgress(
+  userId: string,
+  courseId: string
+): Promise<LessonProgress[]> {
+  const q = query(
+    collection(db, "progress"),
+    where("userId", "==", userId),
+    where("courseId", "==", courseId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  })) as LessonProgress[];
+}
+
+// ============ BATCH UPDATE ============
+
+/**
+ * Cập nhật nhiều progress cùng lúc (dùng batch)
+ */
+export async function batchUpdateProgress(
+  updates: Array<{
+    userId: string;
+    courseId: string;
+    moduleId: string;
+    lessonId: string;
+    status: "completed" | "in_progress";
+    xpReward?: number;
+  }>
 ): Promise<void> {
-  const progressRef = doc(
-    db,
-    "progress",
-    `${userId}_${courseId}_${moduleId}_${lessonId}`
-  );
-  await setDoc(
-    progressRef,
-    {
-      userId,
-      courseId,
-      moduleId,
-      lessonId,
-      flashcardProgress,
+  const batch = writeBatch(db);
+  for (const update of updates) {
+    const progressId = `${update.userId}_${update.courseId}_${update.moduleId}_${update.lessonId}`;
+    const ref = doc(db, "progress", progressId);
+    const updateData: any = {
+      status: update.status,
+      lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+    };
+    if (update.status === "completed") {
+      updateData.completedAt = serverTimestamp();
+      if (update.xpReward) updateData.xpEarned = update.xpReward;
+    }
+    batch.set(ref, updateData, { merge: true });
+  }
+  await batch.commit();
+}
+
+// ============ XP LOGS ============
+
+/**
+ * Ghi log thay đổi XP (dùng cho admin hoặc tự động)
+ */
+export async function addXPLog(
+  userId: string,
+  amount: number,
+  reason: string,
+  activityType: "lesson_complete" | "quiz_complete" | "admin_adjustment" | "refund",
+  adminNote?: string
+): Promise<void> {
+  await setDoc(doc(collection(db, "xp_logs")), {
+    userId,
+    amount,
+    reason,
+    activityType,
+    adminNote: adminNote || null,
+    createdAt: serverTimestamp(),
+  });
 }

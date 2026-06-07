@@ -8,7 +8,7 @@ import { db, auth } from "../utils/config";
 import {
   doc, collection, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, getCountFromServer,
-  serverTimestamp, increment, writeBatch, Timestamp,
+  serverTimestamp, increment, writeBatch, Timestamp,collectionGroup,
 } from "firebase/firestore";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { getFunctions, httpsCallable } from "firebase/functions";

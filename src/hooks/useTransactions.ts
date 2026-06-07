@@ -13,6 +13,7 @@ import {
   onSnapshot,
   Timestamp,
   QueryConstraint,
+  limit,
 } from "firebase/firestore";
 import type { Transaction, TransactionStatus } from "../types/transaction";
 

@@ -71,6 +71,8 @@ import {
   CartesianGrid,
 } from "recharts";
 
+import { limit } from "firebase/firestore";
+
 // ==================== TYPES ====================
 type UserRole = "student" | "instructor" | "moderator" | "admin";
 type UserStatus = "active" | "banned" | "suspended";
@@ -958,7 +960,7 @@ export default function UserDetailAdmin() {
       toast("User unbanned", "success");
     } else {
       await banUser(user.id, "Banned from detail page", false);
-      toast("User banned", "warning");
+      toast("User banned", "error");
     }
   };
 

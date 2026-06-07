@@ -1967,7 +1967,7 @@ export default function CommunityAdmin() {
           ].map(({ id, label, Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => setTab(id as "rooms" | "reports")}
               style={{
                 flex: 1,
                 display: "flex",
