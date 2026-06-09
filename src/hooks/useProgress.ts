@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { db } from "../utils/config";
 import { Progress } from "../types/progress";
 
@@ -12,6 +12,26 @@ export function useProgress(userId: string | undefined, courseId: string | undef
   const [progress, setProgress] = useState<Progress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Hàm fetch lại dữ liệu (có thể gọi thủ công sau khi complete)
+  const refreshProgress = async () => {
+    if (!userId || !courseId) return;
+    try {
+      const q = query(
+        collection(db, "progress"),
+        where("userId", "==", userId),
+        where("courseId", "==", courseId)
+      );
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as unknown as Progress[];
+      setProgress(data);
+    } catch (err) {
+      console.error("refreshProgress error:", err);
+    }
+  };
 
   useEffect(() => {
     if (!userId || !courseId) {
@@ -47,10 +67,10 @@ export function useProgress(userId: string | undefined, courseId: string | undef
     return () => unsubscribe();
   }, [userId, courseId]);
 
-  // Helper: kiểm tra lesson đã hoàn thành chưa
+  // Helper: kiểm tra lesson đã hoàn thành chưa (đã sửa bug)
   const isLessonCompleted = (moduleId: string, lessonId: string): boolean => {
     return progress.some(
-      (p) => p.moduleId === moduleId && p.lessonId === p.lessonId && p.status === "completed"
+      (p) => p.moduleId === moduleId && p.lessonId === lessonId && p.status === "completed"
     );
   };
 
@@ -73,5 +93,6 @@ export function useProgress(userId: string | undefined, courseId: string | undef
     isLessonCompleted,
     getQuizScore,
     getFlashcardProgress,
+    refreshProgress,   // đã thêm
   };
 }

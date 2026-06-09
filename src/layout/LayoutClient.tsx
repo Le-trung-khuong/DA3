@@ -8,7 +8,7 @@
 import React from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { BookOpen, LogOut, Home, MessageSquare } from "lucide-react";
+import { BookOpen, LogOut, Home, MessageSquare, Trophy, Bell, UserCircle } from "lucide-react";
 import NotificationBell from "../components/client/NotificationBell";
 
 export default function LayoutClient() {
@@ -23,34 +23,40 @@ export default function LayoutClient() {
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", fontFamily: "Inter, sans-serif" }}>
       {/* Header */}
-      <header style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        background: "rgba(15,15,26,0.92)",
-        backdropFilter: "blur(18px)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-      }}>
-        <div style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          padding: "12px 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 24,
-        }}>
+      <header
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 40,
+          background: "rgba(15,15,26,0.92)",
+          backdropFilter: "blur(18px)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1280,
+            margin: "0 auto",
+            padding: "12px 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 24,
+          }}
+        >
           {/* Logo */}
           <Link to="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
-            <div style={{
-              width: 32,
-              height: 32,
-              background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                borderRadius: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
               <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>SR</span>
             </div>
             <span style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE" }}>Smart Review</span>
@@ -58,37 +64,113 @@ export default function LayoutClient() {
 
           {/* Navigation */}
           <nav style={{ display: "flex", gap: 24, alignItems: "center" }}>
-            <Link to="/" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+            <Link
+              to="/"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
               <Home size={16} /> Home
             </Link>
-            <Link to="/courses" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+            <Link
+              to="/courses"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
               <BookOpen size={16} /> Courses
             </Link>
-            <Link to="/chat" style={{ display: "flex", alignItems: "center", gap: 6, color: "#C7C4D8", textDecoration: "none", fontSize: 14, fontWeight: 600 }}>
+            <Link
+              to="/leaderboard"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              <Trophy size={16} /> Leaderboard
+            </Link>
+            <Link
+              to="/chat"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
               <MessageSquare size={16} /> Chat
+            </Link>
+            <Link
+              to="/notifications"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              <Bell size={16} /> Notifications
+            </Link>
+            <Link
+              to="/profile"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#C7C4D8",
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              <UserCircle size={16} /> Profile
             </Link>
           </nav>
 
           {/* Notification Bell + User menu */}
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            {/* Notification Bell */}
             <NotificationBell />
-            
+
             {currentUser ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: "50%",
-                    background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: "#fff",
-                  }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "#fff",
+                    }}
+                  >
                     {userProfile?.displayName?.[0]?.toUpperCase() || currentUser.email?.[0]?.toUpperCase() || "U"}
                   </div>
                   <span style={{ fontSize: 13, color: "#E4E1EE" }}>
@@ -143,14 +225,16 @@ export default function LayoutClient() {
       </main>
 
       {/* Simple Footer */}
-      <footer style={{
-        borderTop: "1px solid rgba(255,255,255,0.06)",
-        padding: "24px",
-        textAlign: "center",
-        fontSize: 12,
-        color: "#47464f",
-      }}>
-        © 2025 Smart Review. All rights reserved.
+      <footer
+        style={{
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          padding: "24px",
+          textAlign: "center",
+          fontSize: 12,
+          color: "#47464f",
+        }}
+      >
+        © 2026 Smart Review. All rights reserved.
       </footer>
     </div>
   );

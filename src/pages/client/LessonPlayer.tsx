@@ -1,6 +1,6 @@
 /**
  * src/pages/client/LessonPlayer.tsx
- * Trình phát bài học tổng hợp, hiển thị đúng component theo loại lesson
+ * Trình phát bài học tổng hợp - sửa lỗi reload 404
  */
 
 import React, { useEffect, useState } from "react";
@@ -53,7 +53,7 @@ export default function LessonPlayer() {
   const userId = currentUser?.uid;
 
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
-  const { isLessonCompleted, getFlashcardProgress } = useProgress(userId, courseId);
+  const { isLessonCompleted, getFlashcardProgress, refreshProgress } = useProgress(userId, courseId);
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [moduleTitle, setModuleTitle] = useState("");
@@ -67,7 +67,6 @@ export default function LessonPlayer() {
         if (foundLesson) {
           setLesson(foundLesson);
         } else {
-          // Lesson not found
           navigate(`/courses/${courseId}`);
         }
       } else {
@@ -75,6 +74,13 @@ export default function LessonPlayer() {
       }
     }
   }, [course, moduleId, lessonId, navigate]);
+
+  // Hàm xử lý sau khi hoàn thành: refresh dữ liệu progress và cập nhật UI
+  const handleLessonComplete = async () => {
+    await refreshProgress(); // giả sử useProgress có refreshProgress
+    // navigate lại chính route đó để remount (có thể không cần nếu refresh đã cập nhật state)
+    navigate(`/learn/${courseId}/${moduleId}/${lessonId}`, { replace: true });
+  };
 
   if (courseLoading) {
     return (
@@ -94,7 +100,6 @@ export default function LessonPlayer() {
 
   const completed = moduleId && lessonId ? isLessonCompleted(moduleId, lessonId) : false;
 
-  // Prepare data for quiz: content may be nested
   let quizQuestions = [];
   let passingScore = 70;
   if (lesson.type === "quiz" && lesson.content?.type === "quiz") {
@@ -110,16 +115,15 @@ export default function LessonPlayer() {
   let flashcardCards = [];
   let flashcardProgress = undefined;
   if (lesson.type === "flashcard" && lesson.content?.type === "flashcard") {
-  flashcardCards = lesson.content.data.cards || [];
-  if (moduleId && lessonId) {
-    flashcardProgress = getFlashcardProgress(moduleId, lessonId);
+    flashcardCards = lesson.content.data.cards || [];
+    if (moduleId && lessonId) {
+      flashcardProgress = getFlashcardProgress(moduleId, lessonId);
+    }
   }
-}
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", padding: "24px" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        {/* Breadcrumb navigation */}
         <div style={{ marginBottom: 24 }}>
           <Link
             to={`/courses/${courseId}`}
@@ -144,7 +148,6 @@ export default function LessonPlayer() {
           </div>
         </div>
 
-        {/* Render specific lesson component */}
         {lesson.type === "video" && (
           <VideoLesson
             userId={userId!}
@@ -154,7 +157,7 @@ export default function LessonPlayer() {
             title={lesson.title}
             videoUrl={lesson.videoUrl || ""}
             xpReward={lesson.xpReward}
-            onComplete={() => window.location.reload()}
+            onComplete={handleLessonComplete}
           />
         )}
 
@@ -168,7 +171,7 @@ export default function LessonPlayer() {
             questions={quizQuestions}
             passingScore={passingScore}
             xpReward={lesson.xpReward}
-            onComplete={() => window.location.reload()}
+            onComplete={handleLessonComplete}
           />
         )}
 
@@ -181,7 +184,7 @@ export default function LessonPlayer() {
             title={lesson.title}
             content={readingContent}
             xpReward={lesson.xpReward}
-            onComplete={() => window.location.reload()}
+            onComplete={handleLessonComplete}
           />
         )}
 
@@ -195,7 +198,8 @@ export default function LessonPlayer() {
             cards={flashcardCards}
             xpReward={lesson.xpReward}
             savedProgress={flashcardProgress}
-            onComplete={() => window.location.reload()}
+            onComplete={handleLessonComplete}
+            isCompleted={completed}
           />
         )}
       </div>

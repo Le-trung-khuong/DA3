@@ -19,6 +19,7 @@ import { FirebaseError } from "firebase/app";
 import { auth, db } from "../utils/config";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
+import { updateUserStreak } from "../services/streakService";
 
 export type UserRole = "admin" | "moderator" | "instructor" | "user";
 
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setLoading(false);
         return;
       }
+      updateUserStreak(user.uid).catch(console.error);
 
       // Realtime role listener
       const userRef = doc(db, "users", user.uid);

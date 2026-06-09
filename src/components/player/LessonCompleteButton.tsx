@@ -1,6 +1,6 @@
 /**
  * src/components/player/LessonCompleteButton.tsx
- * Nút đánh dấu hoàn thành bài học
+ * Nút đánh dấu hoàn thành bài học – có nhận trạng thái completed từ ngoài
  */
 
 import React, { useState } from "react";
@@ -15,6 +15,7 @@ interface LessonCompleteButtonProps {
   xpReward: number;
   onComplete?: () => void;
   disabled?: boolean;
+  isCompleted?: boolean; // ✅ thêm prop này
 }
 
 export function LessonCompleteButton({
@@ -25,16 +26,20 @@ export function LessonCompleteButton({
   xpReward,
   onComplete,
   disabled = false,
+  isCompleted = false, // ✅ mặc định false
 }: LessonCompleteButtonProps) {
   const [loading, setLoading] = useState(false);
-  const [completed, setCompleted] = useState(false);
+  const [localCompleted, setLocalCompleted] = useState(false);
+
+  // Hiển thị completed nếu đã hoàn thành từ trước HOẶC vừa mới hoàn thành
+  const showCompleted = isCompleted || localCompleted;
 
   const handleComplete = async () => {
-    if (loading || completed || disabled) return;
+    if (loading || showCompleted || disabled) return;
     setLoading(true);
     try {
       await completeLesson(userId, courseId, moduleId, lessonId, xpReward);
-      setCompleted(true);
+      setLocalCompleted(true);
       onComplete?.();
     } catch (error) {
       console.error("Failed to mark lesson complete:", error);
@@ -44,7 +49,7 @@ export function LessonCompleteButton({
     }
   };
 
-  if (completed) {
+  if (showCompleted) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#45f1c5" }}>
         <CheckCircle size={20} />

@@ -1,10 +1,6 @@
-/**
- * src/components/player/FlashcardLesson.tsx
- * Flashcard lesson (flip card, basic)
- */
-
+// src/components/player/FlashcardLesson.tsx
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, RotateCw, CheckCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCw, CheckCircle, RefreshCw, BarChart2 } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveFlashcardProgress } from "../../services/progressService";
 
@@ -25,102 +21,135 @@ interface FlashcardLessonProps {
   xpReward: number;
   savedProgress?: { totalCards: number; rememberedCards: number; lastCardIndex: number };
   onComplete?: () => void;
+  isCompleted?: boolean;
 }
 
+type StudyMode = "learn" | "review" | "test";
+type Difficulty = "again" | "hard" | "good" | "easy";
+
 export function FlashcardLesson({
-  userId,
-  courseId,
-  moduleId,
-  lessonId,
-  title,
-  cards,
-  xpReward,
-  savedProgress,
-  onComplete,
+  userId, courseId, moduleId, lessonId, title, cards, xpReward, savedProgress, onComplete, isCompleted = false
 }: FlashcardLessonProps) {
-  const [currentIndex, setCurrentIndex] = useState(() => {
-    if (savedProgress && savedProgress.lastCardIndex !== undefined && savedProgress.lastCardIndex < cards.length) {
-      return savedProgress.lastCardIndex;
-    }
-    return 0;
-  });
+  const [mode, setMode] = useState<StudyMode>("learn");
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [remembered, setRemembered] = useState<Set<string>>(() => new Set());
-  const [progressSaved, setProgressSaved] = useState(false);
+  const [mastered, setMastered] = useState<Set<string>>(() => new Set());
+  const [reviewQueue, setReviewQueue] = useState<string[]>([]);
+  const [stats, setStats] = useState({ totalReviewed: 0, correct: 0 });
 
-  const currentCard = cards[currentIndex];
-  const totalCards = cards.length;
-  const rememberedCount = remembered.size;
-
-  // Auto-save progress when remembered set changes or index changes
   useEffect(() => {
-    const saveProgress = async () => {
-      if (progressSaved) return;
-      // Build FlashcardProgress object as expected by service
+    // Load saved mastered from progress
+    if (savedProgress?.rememberedCards) {
+      // mock: assume first N cards are mastered
+      const masteredIds = cards.slice(0, savedProgress.rememberedCards).map(c => c.id);
+      setMastered(new Set(masteredIds));
+    }
+  }, [savedProgress, cards]);
+
+  const totalCards = cards.length;
+  const currentCard = cards[currentIndex];
+  const masteredCount = mastered.size;
+  const allMastered = masteredCount === totalCards;
+
+  // Auto-save progress
+  useEffect(() => {
+    const save = async () => {
       const flashcardProgress = {
         lessonId,
-        cards: Object.fromEntries(
-          cards.map(card => [card.id, {
-            mastered: remembered.has(card.id),
-            timesReviewed: remembered.has(card.id) ? 1 : 0,
-            lastReviewedAt: remembered.has(card.id) ? new Date() : new Date(0),
-          }])
-        ),
-        masteredCount: rememberedCount,
+        cards: Object.fromEntries(cards.map(card => [card.id, {
+          mastered: mastered.has(card.id),
+          timesReviewed: mastered.has(card.id) ? 1 : 0,
+          lastReviewedAt: new Date(),
+        }])),
+        masteredCount,
         totalCount: totalCards,
         lastActivityAt: new Date(),
       };
       await saveFlashcardProgress(userId, courseId, moduleId, lessonId, flashcardProgress);
     };
-    saveProgress();
-  }, [rememberedCount, currentIndex, userId, courseId, moduleId, lessonId, totalCards, progressSaved, cards, lessonId, remembered]);
+    save();
+  }, [masteredCount, currentIndex]);
 
   const handleFlip = () => setFlipped(!flipped);
 
-  const handleRemember = () => {
-    setRemembered((prev) => {
-      const next = new Set(prev);
-      next.add(currentCard.id);
-      return next;
-    });
+  const handleDifficulty = (difficulty: Difficulty) => {
+    if (difficulty === "again") {
+      // keep in review queue
+      setReviewQueue(prev => [...prev, currentCard.id]);
+    } else if (difficulty === "hard") {
+      // review later
+      setReviewQueue(prev => [...prev, currentCard.id]);
+    } else if (difficulty === "good") {
+      setMastered(prev => new Set(prev).add(currentCard.id));
+    } else if (difficulty === "easy") {
+      setMastered(prev => new Set(prev).add(currentCard.id));
+    }
+    setStats(prev => ({ ...prev, totalReviewed: prev.totalReviewed + 1, correct: prev.correct + (difficulty !== "again" ? 1 : 0) }));
+    nextCard();
+  };
+
+  const nextCard = () => {
     if (currentIndex + 1 < totalCards) {
       setCurrentIndex(currentIndex + 1);
+      setFlipped(false);
+    } else if (reviewQueue.length > 0) {
+      // review mode: show missed cards
+      const nextId = reviewQueue.shift();
+      const idx = cards.findIndex(c => c.id === nextId);
+      if (idx !== -1) setCurrentIndex(idx);
       setFlipped(false);
     }
   };
 
-  const handleNext = () => {
-    if (currentIndex + 1 < totalCards) {
-      setCurrentIndex(currentIndex + 1);
-      setFlipped(false);
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentIndex - 1 >= 0) {
+  const prevCard = () => {
+    if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
       setFlipped(false);
     }
   };
 
-  const allRemembered = rememberedCount === totalCards;
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.code === "Space") { e.preventDefault(); handleFlip(); }
+      if (e.code === "ArrowLeft") prevCard();
+      if (e.code === "ArrowRight") nextCard();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [currentIndex, flipped]);
 
-  if (allRemembered) {
+  if (allMastered) {
     return (
       <div style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
-        <div style={{ background: "rgba(69,241,197,0.1)", borderRadius: 16, padding: 32, marginBottom: 24 }}>
-          <CheckCircle size={48} color="#45f1c5" style={{ marginBottom: 16 }} />
-          <h3 style={{ fontSize: 20, fontWeight: 700, color: "#E4E1EE", marginBottom: 8 }}>Great job!</h3>
-          <p style={{ fontSize: 16, color: "#C7C4D8" }}>You've mastered all {totalCards} flashcards.</p>
+        <div style={{ background: "rgba(69,241,197,0.1)", borderRadius: 20, padding: 32, marginBottom: 24 }}>
+          <CheckCircle size={48} color="#45f1c5" />
+          <h3 style={{ fontSize: 22, fontWeight: 700, color: "#E4E1EE", marginTop: 16 }}>Excellent!</h3>
+          <p style={{ fontSize: 16, color: "#C7C4D8" }}>You mastered all {totalCards} flashcards.</p>
+          <div style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 12 }}>
+            <div><BarChart2 size={16} /> {stats.totalReviewed} reviews</div>
+            <div>🎯 {Math.round((stats.correct/stats.totalReviewed)*100)||0}% accuracy</div>
+          </div>
         </div>
         <LessonCompleteButton
-          userId={userId}
-          courseId={courseId}
-          moduleId={moduleId}
-          lessonId={lessonId}
-          xpReward={xpReward}
-          onComplete={onComplete}
+          userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
+          xpReward={xpReward} onComplete={onComplete} isCompleted={isCompleted}
         />
+      </div>
+    );
+  }
+
+  // Mode selector
+  if (mode !== "learn") {
+    return (
+      <div style={{ maxWidth: 500, margin: "0 auto", textAlign: "center" }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 24 }}>{title}</h2>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 32 }}>
+          <button onClick={() => setMode("learn")} style={{ background: "linear-gradient(135deg,#6C63FF,#9B59B6)", border: "none", padding: "12px 24px", borderRadius: 40, color: "#fff", fontWeight: 700 }}>Start Learn</button>
+          <button onClick={() => setMode("review")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", padding: "12px 24px", borderRadius: 40, color: "#C7C4D8" }}>Review</button>
+          <button onClick={() => setMode("test")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", padding: "12px 24px", borderRadius: 40, color: "#C7C4D8" }}>Test</button>
+        </div>
+        <p style={{ color: "#C7C4D8" }}>Choose a study mode to begin.</p>
       </div>
     );
   }
@@ -129,136 +158,58 @@ export function FlashcardLesson({
     <div style={{ maxWidth: 600, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>{title}</h2>
-        <span style={{ fontSize: 14, color: "#C7C4D8" }}>
-          {currentIndex + 1} / {totalCards} • {rememberedCount} remembered
-        </span>
+        <span style={{ fontSize: 14, color: "#C7C4D8" }}>{masteredCount}/{totalCards} mastered</span>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, marginBottom: 24 }}>
+        <div style={{ width: `${(masteredCount/totalCards)*100}%`, height: "100%", background: "#45f1c5", borderRadius: 2 }} />
       </div>
 
       {/* Flashcard */}
-      <div
-        onClick={handleFlip}
-        style={{
-          perspective: "1000px",
-          cursor: "pointer",
-          marginBottom: 24,
-        }}
-      >
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: 320,
-            transition: "transform 0.6s",
-            transformStyle: "preserve-3d",
-            transform: flipped ? "rotateY(180deg)" : "rotateY(0)",
-          }}
-        >
-          {/* Front */}
-          <div
-            style={{
-              position: "absolute",
-              width: "100%",
-              height: "100%",
-              backfaceVisibility: "hidden",
-              background: "linear-gradient(135deg, #1a1a2e, #0d0d18)",
-              borderRadius: 20,
-              border: "1px solid rgba(108,99,255,0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-              textAlign: "center",
-            }}
-          >
+      <div onClick={handleFlip} style={{ perspective: "1000px", cursor: "pointer", marginBottom: 24 }}>
+        <div style={{ position: "relative", width: "100%", height: 320, transition: "transform 0.6s", transformStyle: "preserve-3d", transform: flipped ? "rotateY(180deg)" : "none" }}>
+          <div style={{ position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden", background: "linear-gradient(135deg,#1a1a2e,#0d0d18)", borderRadius: 20, border: "1px solid rgba(108,99,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
             <p style={{ fontSize: 20, fontWeight: 600, color: "#E4E1EE" }}>{currentCard.front}</p>
           </div>
-          {/* Back */}
-          <div
-            style={{
-              position: "absolute",
-              width: "100%",
-              height: "100%",
-              backfaceVisibility: "hidden",
-              transform: "rotateY(180deg)",
-              background: "linear-gradient(135deg, #1a1a2e, #0d0d18)",
-              borderRadius: 20,
-              border: "1px solid rgba(69,241,197,0.3)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-              textAlign: "center",
-            }}
-          >
+          <div style={{ position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden", transform: "rotateY(180deg)", background: "linear-gradient(135deg,#1a1a2e,#0d0d18)", borderRadius: 20, border: "1px solid rgba(69,241,197,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
             <p style={{ fontSize: 18, fontWeight: 500, color: "#C7C4D8", marginBottom: 16 }}>{currentCard.back}</p>
-            {currentCard.hint && (
-              <p style={{ fontSize: 12, color: "#FFB785", fontStyle: "italic" }}>Hint: {currentCard.hint}</p>
-            )}
+            {currentCard.hint && <p style={{ fontSize: 12, color: "#FFB785" }}>💡 {currentCard.hint}</p>}
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 24 }}>
-        <button
-          onClick={handlePrev}
-          disabled={currentIndex === 0}
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            padding: "8px 16px",
-            cursor: currentIndex === 0 ? "not-allowed" : "pointer",
-            color: "#C7C4D8",
-          }}
-        >
-          <ChevronLeft size={18} /> Previous
+      {/* Difficulty buttons (only when flipped) */}
+      {flipped && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 24 }}>
+          {(["again","hard","good","easy"] as Difficulty[]).map(d => (
+            <button key={d} onClick={() => handleDifficulty(d)}
+              style={{ background: d==="again"?"rgba(255,107,107,0.2)": d==="hard"?"rgba(255,183,133,0.2)": d==="good"?"rgba(69,241,197,0.2)":"rgba(108,99,255,0.2)", border: `1px solid ${d==="again"?"#ff6b6b": d==="hard"?"#FFB785": d==="good"?"#45f1c5":"#6C63FF"}`, borderRadius: 40, padding: "6px 16px", fontSize: 12, fontWeight: 600, color: d==="again"?"#ff6b6b": d==="hard"?"#FFB785": d==="good"?"#45f1c5":"#6C63FF", cursor: "pointer" }}>
+              {d.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Navigation */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 12 }}>
+        <button onClick={prevCard} disabled={currentIndex === 0}
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", color: "#C7C4D8" }}>
+          <ChevronLeft size={16} />
         </button>
-        <button
-          onClick={handleRemember}
-          style={{
-            background: "linear-gradient(135deg,#45f1c5,#00A878)",
-            border: "none",
-            borderRadius: 10,
-            padding: "8px 20px",
-            fontWeight: 700,
-            color: "#000",
-            cursor: "pointer",
-          }}
-        >
-          Remembered ✓
+        <button onClick={handleFlip}
+          style={{ background: "rgba(108,99,255,0.2)", border: "none", borderRadius: 10, padding: "8px 16px", color: "#c4c0ff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <RotateCw size={14} /> Flip
         </button>
-        <button
-          onClick={handleNext}
-          disabled={currentIndex === totalCards - 1}
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            padding: "8px 16px",
-            cursor: currentIndex === totalCards - 1 ? "not-allowed" : "pointer",
-            color: "#C7C4D8",
-          }}
-        >
-          Next <ChevronRight size={18} />
+        <button onClick={nextCard} disabled={currentIndex === totalCards-1 && reviewQueue.length === 0}
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", color: "#C7C4D8" }}>
+          <ChevronRight size={16} />
         </button>
       </div>
 
-      <div style={{ textAlign: "center" }}>
-        <button
-          onClick={handleFlip}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#6C63FF",
-            fontSize: 13,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <RotateCw size={14} /> Flip card
+      <div style={{ textAlign: "center", marginTop: 32 }}>
+        <button onClick={() => setMode("learn")} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
+          <RefreshCw size={12} /> Reset session
         </button>
       </div>
     </div>

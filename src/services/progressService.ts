@@ -16,7 +16,10 @@ import {
   serverTimestamp,
   Timestamp,
   writeBatch,
+  increment,
 } from "firebase/firestore";
+
+import { updateUserStreak } from "./streakService";
 
 // ============ TYPES ============
 
@@ -53,11 +56,6 @@ export interface FlashcardProgress {
 
 /**
  * Lưu hoặc cập nhật kết quả quiz của user
- * @param userId - ID người dùng
- * @param courseId - ID khóa học
- * @param moduleId - ID module
- * @param lessonId - ID bài học (quiz)
- * @param attempt - Dữ liệu lần làm quiz (đã sửa type: không dùng Omit)
  */
 export async function saveQuizAttempt(
   userId: string,
@@ -159,7 +157,6 @@ export async function saveFlashcardProgress(
     updateData.startedAt = serverTimestamp();
   }
 
-  // Nếu đã mastered toàn bộ, đánh dấu completed
   if (progress.masteredCount === progress.totalCount && progress.totalCount > 0) {
     updateData.status = "completed";
     updateData.completedAt = serverTimestamp();
@@ -201,6 +198,7 @@ export async function getFlashcardProgress(
 
 /**
  * Đánh dấu bài học (video, reading) đã hoàn thành và cộng XP
+ * 🔍 Log chi tiết để debug
  */
 export async function completeLesson(
   userId: string,
@@ -209,12 +207,14 @@ export async function completeLesson(
   lessonId: string,
   xpReward: number
 ): Promise<void> {
+  console.log(`[completeLesson] Start: userId=${userId}, lessonId=${lessonId}, xpReward=${xpReward}`);
+
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
 
   const existing = await getDoc(progressRef);
   if (existing.exists() && existing.data().status === "completed") {
-    // Đã hoàn thành trước đó, không cộng XP lại
+    console.log(`[completeLesson] Lesson ${lessonId} already completed, skip.`);
     return;
   }
 
@@ -236,14 +236,27 @@ export async function completeLesson(
     updateData.startedAt = serverTimestamp();
   }
 
+  // 1. Lưu progress
   await setDoc(progressRef, updateData, { merge: true });
+  console.log(`[completeLesson] Progress saved for ${lessonId}`);
 
-  // Cộng XP vào user
+  // 2. Cộng XP atomic (increment)
   const userRef = doc(db, "users", userId);
-  await updateDoc(userRef, {
-    totalXP: (await getDoc(userRef)).data()?.totalXP + xpReward || xpReward,
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    await updateDoc(userRef, {
+      totalXP: increment(xpReward),
+      updatedAt: serverTimestamp(),
+    });
+    await updateUserStreak(userId);
+    console.log(`✅ XP added: +${xpReward} to user ${userId}`);
+  } catch (err) {
+    console.error("❌ Failed to update user XP:", err);
+    throw err;
+  }
+
+  // 3. Ghi log XP
+  await addXPLog(userId, xpReward, `Completed lesson: ${lessonId}`, "lesson_complete");
+  console.log(`[completeLesson] XP log saved`);
 }
 
 /**
@@ -261,7 +274,7 @@ export async function isLessonCompleted(
 }
 
 /**
- * Lấy tất cả progress của user trong một khóa học (dùng cho realtime hook)
+ * Lấy tất cả progress của user trong một khóa học
  */
 export async function getCourseProgress(
   userId: string,
@@ -330,6 +343,6 @@ export async function addXPLog(
     reason,
     activityType,
     adminNote: adminNote || null,
-    createdAt: serverTimestamp(),
+    timestamp: serverTimestamp(),
   });
 }
