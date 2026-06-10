@@ -1,6 +1,8 @@
+// src/layout/LayoutClient.tsx
 /**
  * src/layout/LayoutClient.tsx
  * Layout cho phía người học (course player, catalog)
+ * Thêm nút Admin Dashboard nếu user có role admin
  */
 
 "use client";
@@ -8,12 +10,13 @@
 import React from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { BookOpen, LogOut, Home, MessageSquare, Trophy, Bell, UserCircle } from "lucide-react";
+import { BookOpen, LogOut, Home, MessageSquare, Trophy, Bell, UserCircle, Shield } from "lucide-react";
 import NotificationBell from "../components/client/NotificationBell";
 
 export default function LayoutClient() {
   const { currentUser, userProfile, logout } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = userProfile?.role === "admin";
 
   const handleLogout = async () => {
     await logout();
@@ -22,7 +25,14 @@ export default function LayoutClient() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", fontFamily: "Inter, sans-serif" }}>
-      {/* Header */}
+      <style>
+        {`
+          @keyframes fadeDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        `}
+      </style>
       <header
         style={{
           position: "sticky",
@@ -148,6 +158,30 @@ export default function LayoutClient() {
             >
               <UserCircle size={16} /> Profile
             </Link>
+
+            {/* Nút Admin Dashboard chỉ hiển thị nếu user có role admin */}
+            {isAdmin && (
+              <Link
+                to="/admin/dashboard"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(108,99,255,0.15)",
+                  padding: "6px 12px",
+                  borderRadius: 20,
+                  color: "#c4c0ff",
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  transition: "background 0.15s",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(108,99,255,0.25)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(108,99,255,0.15)")}
+              >
+                <Shield size={14} /> Admin
+              </Link>
+            )}
           </nav>
 
           {/* Notification Bell + User menu */}
@@ -219,12 +253,10 @@ export default function LayoutClient() {
         </div>
       </header>
 
-      {/* Main content */}
       <main>
         <Outlet />
       </main>
 
-      {/* Simple Footer */}
       <footer
         style={{
           borderTop: "1px solid rgba(255,255,255,0.06)",

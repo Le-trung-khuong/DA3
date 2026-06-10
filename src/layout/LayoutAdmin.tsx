@@ -6,9 +6,6 @@
  * Exports:
  *   default LayoutAdmin      – full shell (sidebar + topbar + content)
  *   AdminRouteGuard          – bảo vệ route: chỉ cho role "admin" vào
- *   Sidebar                  – nav dọc (desktop), slide-in (mobile)
- *   SidebarItem              – 1 nav item với active state
- *   TopBar                   – header: search, notifications, user menu
  *
  * Routing:
  *   Dùng React Router v6 (useLocation / useNavigate).
@@ -18,6 +15,10 @@
  *   no user  → redirect /admin/login
  *   not admin→ 403 screen
  *   admin    → render children
+ *
+ * Responsive:
+ *   - Desktop (>1024px): sidebar có thể collapsed/expanded
+ *   - Mobile (<1024px): sidebar chuyển thành drawer (ẩn, mở bằng hamburger)
  *
  * Dependencies: lucide-react  react-router-dom  @/contexts/AuthContext
  */
@@ -42,7 +43,7 @@ import {
   Shield, AlertTriangle, Loader, RefreshCw, Home,
   TrendingUp, Flag, Zap, Hash, CreditCard, Star,
   ChevronDown, ExternalLink, Activity, Lock, Radio,
-  Info, ShieldOff, Trophy,  // ← thêm Trophy cho Leaderboard
+  Info, ShieldOff, Trophy,
 } from "lucide-react";
 
 // ─── Auth hook ────────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ interface NavItem {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NAV CONFIG (đã thêm Leaderboard)
+// NAV CONFIG
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const NAV_ITEMS: NavItem[] = [
@@ -81,7 +82,7 @@ const NAV_ITEMS: NavItem[] = [
   // ── USERS ───────────────────────────────────────────────────────────────────
   { section: "Users",       label: "All Users",    path: "/admin/users",        Icon: Users,       roles: ["admin","moderator"] },
   {                         label: "Reviews",      path: "/admin/reviews",      Icon: Star,        roles: ["admin","moderator"] },
-  {                         label: "Leaderboard",  path: "/admin/leaderboard",  Icon: Trophy,      roles: ["admin","moderator"] }, // ✅ Thêm mới
+  {                         label: "Leaderboard",  path: "/admin/leaderboard",  Icon: Trophy,      roles: ["admin","moderator"] },
 
   // ── COMMUNITY ───────────────────────────────────────────────────────────────
   { section: "Community",   label: "Chat Rooms",   path: "/admin/community",    Icon: Hash,        roles: ["admin","moderator"] },
@@ -108,7 +109,7 @@ const T: Record<string, string | number | CSSProperties> = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SidebarItem
+// SidebarItem – responsive, collapsed support
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface SidebarItemProps {
@@ -130,11 +131,18 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
       onMouseOver={() => setHovered(true)}
       onMouseOut={()  => setHovered(false)}
       style={{
-        width: "100%", display: "flex", alignItems: "center",
-        gap: 11, padding: collapsed ? "11px 0" : "11px 14px",
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: collapsed ? 0 : 11,
+        padding: collapsed ? "10px 0" : "10px 14px",
         justifyContent: collapsed ? "center" : "flex-start",
-        borderRadius: 13, fontSize: 13, fontWeight: active ? 800 : 600,
-        cursor: "pointer", transition: "all .18s", border: "none",
+        borderRadius: 12,
+        fontSize: 13,
+        fontWeight: active ? 800 : 600,
+        cursor: "pointer",
+        transition: "all .18s",
+        border: "none",
         background: active
           ? "linear-gradient(135deg,rgba(108,99,255,.22),rgba(155,89,182,.15))"
           : hovered
@@ -147,14 +155,18 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
     >
       {active && (
         <span style={{
-          position: "absolute", left: 0, top: "20%", bottom: "20%",
-          width: 3, borderRadius: "0 3px 3px 0",
+          position: "absolute",
+          left: 0,
+          top: "15%",
+          bottom: "15%",
+          width: 3,
+          borderRadius: "0 3px 3px 0",
           background: "linear-gradient(180deg,#6C63FF,#9B59B6)",
           boxShadow: "0 0 8px rgba(108,99,255,.6)",
         }} />
       )}
 
-      <Icon size={17} style={{ flexShrink: 0, transition: "transform .2s", transform: hovered && !active ? "translateX(2px)" : "none" }} />
+      <Icon size={18} style={{ flexShrink: 0, transition: "transform .2s", transform: hovered && !active ? "translateX(2px)" : "none" }} />
 
       {!collapsed && (
         <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -164,17 +176,27 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
 
       {badge !== undefined && !collapsed && (
         <span style={{
-          background: `${badgeColor}20`, border: `1px solid ${badgeColor}40`,
-          color: badgeColor, fontSize: 9, fontWeight: 800, padding: "1px 7px",
-          borderRadius: 999, letterSpacing: ".04em",
+          background: `${badgeColor}20`,
+          border: `1px solid ${badgeColor}40`,
+          color: badgeColor,
+          fontSize: 9,
+          fontWeight: 800,
+          padding: "1px 7px",
+          borderRadius: 999,
+          letterSpacing: ".04em",
         }}>
           {badge}
         </span>
       )}
       {badge !== undefined && collapsed && (
         <span style={{
-          position: "absolute", top: 6, right: 6, width: 8, height: 8,
-          borderRadius: "50%", background: badgeColor,
+          position: "absolute",
+          top: 6,
+          right: 6,
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: badgeColor,
           boxShadow: `0 0 6px ${badgeColor}`,
         }} />
       )}
@@ -183,7 +205,7 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Sidebar
+// Sidebar – Desktop and Mobile drawer
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface SidebarProps {
@@ -202,6 +224,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
     role ? item.roles.includes(role) : false
   );
 
+  // Group items by section
   const sections: { label?: string; items: NavItem[] }[] = [];
   let currentSection: { label?: string; items: NavItem[] } | null = null;
   for (const item of visibleItems) {
@@ -213,32 +236,45 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
   }
 
   const sidebarStyle: CSSProperties = {
-    position:        "fixed",
-    top:             0,
-    left:            0,
-    bottom:          0,
+    position: "fixed",
+    top: 0,
+    left: 0,
+    bottom: 0,
     width,
-    zIndex:          60,
-    background:      T.sidebar as string,
-    borderRight:     `1px solid ${T.border}`,
-    backdropFilter:  "blur(20px)",
-    display:         "flex",
-    flexDirection:   "column",
-    transition:      "width .25s cubic-bezier(.4,0,.2,1), transform .25s",
-    overflowX:       "hidden",
-    transform:       `translateX(${mobileOpen ? "0" : "-100%"})`,
+    zIndex: 60,
+    background: T.sidebar as string,
+    borderRight: `1px solid ${T.border}`,
+    backdropFilter: "blur(20px)",
+    display: "flex",
+    flexDirection: "column",
+    transition: "width .25s cubic-bezier(.4,0,.2,1), transform .25s",
+    overflowX: "hidden",
+    transform: mobileOpen ? "translateX(0)" : "translateX(-100%)",
   };
+
+  // Override transform for desktop: always visible
+  if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+    sidebarStyle.transform = "translateX(0)";
+  }
 
   return (
     <>
+      {/* Overlay cho mobile drawer */}
       {mobileOpen && (
         <div
           onClick={onClose}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)", zIndex: 59 }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.6)",
+            backdropFilter: "blur(4px)",
+            zIndex: 59,
+          }}
         />
       )}
 
       <nav style={sidebarStyle}>
+        {/* Header logo */}
         <div style={{ padding: collapsed ? "20px 0" : "20px 18px", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.border}`, flexShrink: 0, justifyContent: collapsed ? "center" : "flex-start" }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 0 14px rgba(108,99,255,.4)" }}>
             <Shield size={18} color="#fff" />
@@ -260,6 +296,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
           )}
         </div>
 
+        {/* Menu items */}
         <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: collapsed ? "12px 6px" : "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
           {sections.map((sec) => (
             <div key={sec.label ?? "root"} style={{ marginBottom: 6 }}>
@@ -293,7 +330,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TopBar (giữ nguyên, không thay đổi)
+// TopBar (giữ nguyên, đã có responsive)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TopBarProps {
@@ -332,15 +369,25 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 
   return (
     <header style={{
-      position: "fixed", top: 0, left: sidebarWidth, right: 0, height: 62, zIndex: 50,
-      background: "rgba(15,15,26,.92)", backdropFilter: "blur(18px)",
-      borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center",
-      gap: 16, padding: "0 22px", transition: "left .25s cubic-bezier(.4,0,.2,1)",
+      position: "fixed",
+      top: 0,
+      left: sidebarWidth,
+      right: 0,
+      height: 62,
+      zIndex: 50,
+      background: "rgba(15,15,26,.92)",
+      backdropFilter: "blur(18px)",
+      borderBottom: `1px solid ${T.border}`,
+      display: "flex",
+      alignItems: "center",
+      gap: 16,
+      padding: "0 22px",
+      transition: "left .25s cubic-bezier(.4,0,.2,1)",
       fontFamily: "Inter,sans-serif",
     }}>
       <button onClick={onToggle}
         style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.muted as string, flexShrink: 0 }}>
-        {collapsed ? <Menu size={16} /> : <Menu size={16} />}
+        <Menu size={16} />
       </button>
 
       <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
@@ -499,7 +546,7 @@ export function AdminRouteGuard({ children, allowedRoles = ["admin"] }: AdminRou
   return <>{children}</>;
 }
 
-// ─── Firebase Error Screen ──────────────────────────────────────────────────────
+// ─── Firebase Error Screen (giữ nguyên) ──────────────────────────────────────
 
 interface FirebaseErrorScreenProps { code: string; error: Error; onRetry: () => void; }
 function FirebaseErrorScreen({ code, error, onRetry }: FirebaseErrorScreenProps) {
@@ -532,7 +579,7 @@ function FirebaseErrorScreen({ code, error, onRetry }: FirebaseErrorScreenProps)
   );
 }
 
-// ─── 403 Screen ────────────────────────────────────────────────────────────────
+// ─── 403 Screen (giữ nguyên) ────────────────────────────────────────────────
 
 function ForbiddenScreen({ role, onGoHome }: { role: UserRole; onGoHome: () => void }) {
   return (
@@ -572,15 +619,32 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Điều chỉnh trạng thái khi resize
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1024px)");
-    const handleChange = (e: MediaQueryListEvent) => { if (e.matches) setCollapsed(true); };
-    if (mq.matches) setCollapsed(true);
-    mq.addEventListener("change", handleChange);
-    return () => mq.removeEventListener("change", handleChange);
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setMobileOpen(false);
+        // Desktop: collapsed có thể tự do
+      } else {
+        // Mobile: collapse luôn để icon nhỏ, nhưng drawer vẫn ẩn
+        setCollapsed(true);
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const sidebarWidth = collapsed ? 68 : 240;
+
+  // Toggle menu: nếu mobile thì mở drawer, nếu desktop thì collapsed
+  const handleToggle = () => {
+    if (window.innerWidth < 1024) {
+      setMobileOpen(prev => !prev);
+    } else {
+      setCollapsed(prev => !prev);
+    }
+  };
 
   return (
     <AdminRouteGuard allowedRoles={allowedRoles}>
@@ -610,10 +674,7 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
 
         <TopBar
           sidebarWidth={sidebarWidth}
-          onToggle={() => {
-            if (window.innerWidth < 1024) setMobileOpen(p => !p);
-            else setCollapsed(p => !p);
-          }}
+          onToggle={handleToggle}
           collapsed={collapsed}
         />
 

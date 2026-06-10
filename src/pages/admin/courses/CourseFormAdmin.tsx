@@ -1280,7 +1280,7 @@ export default function CourseFormAdmin() {
 
           <Section title="Pricing & Visibility" subtitle="Revenue and publication settings" icon={DollarSign}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <InputField label="Price (USD)" icon={DollarSign} error={touched.price ? errors.price : undefined} hint="Set to 0 for a free course">
+              <InputField label="Price (VND)" icon={DollarSign} error={touched.price ? errors.price : undefined} hint="Set to 0 for a free course">
                 <div style={{ position: "relative" }}>
                   <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#45f1c5", fontSize: 15, fontWeight: 700 }}>$</span>
                   <input

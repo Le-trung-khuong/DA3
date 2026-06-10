@@ -338,7 +338,7 @@ export default function CourseDetail() {
                     }}
                     onClick={handlePaidEnroll}
                   >
-                    Buy Now • ${course.price}
+                    Buy Now • {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(course.price)}
                   </button>
                 )
               ) : (

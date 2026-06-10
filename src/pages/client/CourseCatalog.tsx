@@ -206,7 +206,7 @@ export default function CourseCatalog() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 20, fontWeight: 800, color: "#45f1c5" }}>
-                      {course.price === 0 ? "Free" : `$${course.price}`}
+                      {course.price === 0 ? "Free" : new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(course.price)}
                     </span>
                     <span style={{ fontSize: 12, color: "#C7C4D8" }}>{course.modulesCount} modules</span>
                   </div>

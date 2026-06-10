@@ -205,6 +205,7 @@ export default function TransactionListAdmin() {
     };
   }, [transactions]);
 
+  // Hiển thị lỗi nếu có
   if (error) {
     return (
       <div style={{ background: "rgba(255,180,171,.07)", border: "1px solid rgba(255,180,171,.2)", borderRadius: 18, padding: 40, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
@@ -214,6 +215,9 @@ export default function TransactionListAdmin() {
       </div>
     );
   }
+
+  // Quyết định có hiển thị skeleton hay không: chỉ khi loading và chưa có dữ liệu
+  const showSkeleton = loading && transactions.length === 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A090F", color: "#E4E1EE", fontFamily: "Inter,sans-serif" }}>
@@ -245,7 +249,7 @@ export default function TransactionListAdmin() {
           failed={summaryStats.failed}
           refunded={summaryStats.refunded}
           totalRevenue={summaryStats.totalRevenue}
-          loading={loading}
+          loading={showSkeleton}
         />
 
         {/* Filters */}
@@ -263,7 +267,7 @@ export default function TransactionListAdmin() {
             <option value="failed">Failed</option>
             <option value="refunded">Refunded</option>
           </select>
-          <span style={{ marginLeft: "auto", fontSize: 12, color: "#C7C4D8" }}>{loading ? "Loading..." : `${filtered.length} giao dịch`}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: "#C7C4D8" }}>{showSkeleton ? "Loading..." : `${filtered.length} giao dịch`}</span>
         </div>
 
         {/* Transactions Table */}
@@ -281,30 +285,34 @@ export default function TransactionListAdmin() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}><td colSpan={6} style={{ padding: "12px 16px" }}><div style={{ height: 14, width: "100%", borderRadius: 7, background: "linear-gradient(90deg,#1f1f2c 25%,#2a2935 50%,#1f1f2c 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite" }} /></td></tr>
-                )) : paged.length === 0 ? (
+                {showSkeleton ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}><td colSpan={6} style={{ padding: "12px 16px" }}><div style={{ height: 14, width: "100%", borderRadius: 7, background: "linear-gradient(90deg,#1f1f2c 25%,#2a2935 50%,#1f1f2c 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite" }} /></td></tr>
+                  ))
+                ) : paged.length === 0 ? (
                   <tr><td colSpan={6} style={{ padding: 60, textAlign: "center" }}><div><DollarSign size={32} color="#47464f" /><p>Không có giao dịch</p></div></td></tr>
-                ) : paged.map((tx) => {
-                  const cfg = STATUS_CFG[tx.status as TxStatus] || STATUS_CFG.pending;
-                  const Icon = cfg.Icon;
-                  return (
-                    <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,.04)", cursor: "pointer" }} onClick={() => setSelectedTransaction(tx)}>
-                      <td style={{ padding: "12px 16px" }}><code style={{ fontSize: 11, background: "rgba(108,99,255,.1)", padding: "2px 6px", borderRadius: 5, color: "#c4c0ff" }}>{tx.id.slice(-8)}</code></td>
-                      <td style={{ padding: "12px 16px" }}><div><span style={{ fontWeight: 700 }}>{tx.userName}</span><div style={{ fontSize: 11, color: "#C7C4D8" }}>{tx.courseName}</div></div></td>
-                      <td style={{ padding: "12px 16px" }}><span style={{ fontWeight: 800, color: "#45f1c5" }}>{fmtMoney(tx.amount)}</span></td>
-                      <td style={{ padding: "12px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color, fontSize: 11, fontWeight: 700 }}><Icon size={10} /> {cfg.label}</span></td>
-                      <td style={{ padding: "12px 16px", fontSize: 12, color: "#C7C4D8" }}>{fmtDate(tx.createdAt)}</td>
-                      <td style={{ padding: "12px 16px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                        {tx.status === "success" && <button onClick={() => setRefundTarget(tx)} style={{ padding: "5px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(255,180,171,.12)", border: "1px solid rgba(255,180,171,.3)", color: "#ffb4ab", cursor: "pointer" }}><Ban size={12} /> Refund</button>}
-                      </td>
-                    </tr>
-                  );
-                })}
+                ) : (
+                  paged.map((tx) => {
+                    const cfg = STATUS_CFG[tx.status as TxStatus] || STATUS_CFG.pending;
+                    const Icon = cfg.Icon;
+                    return (
+                      <tr key={tx.id} style={{ borderBottom: "1px solid rgba(255,255,255,.04)", cursor: "pointer" }} onClick={() => setSelectedTransaction(tx)}>
+                        <td style={{ padding: "12px 16px" }}><code style={{ fontSize: 11, background: "rgba(108,99,255,.1)", padding: "2px 6px", borderRadius: 5, color: "#c4c0ff" }}>{tx.id.slice(-8)}</code></td>
+                        <td style={{ padding: "12px 16px" }}><div><span style={{ fontWeight: 700 }}>{tx.userName}</span><div style={{ fontSize: 11, color: "#C7C4D8" }}>{tx.courseName}</div></div></td>
+                        <td style={{ padding: "12px 16px" }}><span style={{ fontWeight: 800, color: "#45f1c5" }}>{fmtMoney(tx.amount)}</span></td>
+                        <td style={{ padding: "12px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color, fontSize: 11, fontWeight: 700 }}><Icon size={10} /> {cfg.label}</span></td>
+                        <td style={{ padding: "12px 16px", fontSize: 12, color: "#C7C4D8" }}>{fmtDate(tx.createdAt)}</td>
+                        <td style={{ padding: "12px 16px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          {tx.status === "success" && <button onClick={() => setRefundTarget(tx)} style={{ padding: "5px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, background: "rgba(255,180,171,.12)", border: "1px solid rgba(255,180,171,.3)", color: "#ffb4ab", cursor: "pointer" }}><Ban size={12} /> Refund</button>}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
-          {!loading && paged.length > 0 && <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,.05)" }}><Pagination page={page} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} /></div>}
+          {!showSkeleton && paged.length > 0 && <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,.05)" }}><Pagination page={page} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} /></div>}
         </div>
       </div>
       {refundTarget && <RefundConfirmDialog transaction={refundTarget} onConfirm={async (reason) => { await handleRefund(refundTarget, reason); setRefundTarget(null); }} onCancel={() => setRefundTarget(null)} />}

@@ -97,7 +97,7 @@ const CATEGORIES = [
 const PAGE_SIZE = 8;
 
 // ==================== HELPER ====================
-const fmtCurrency = (n: number) => (n === 0 ? "Free" : `$${n}`);
+const fmtCurrency = (n: number) => n === 0 ? "Free" : new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
 const fmtDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtNum = (n: number) => new Intl.NumberFormat("en-US", { notation: "compact" }).format(n);
 

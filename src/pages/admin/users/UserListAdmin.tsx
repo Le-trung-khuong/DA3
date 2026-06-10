@@ -1,6 +1,7 @@
 /**
  * Smart Review — Admin User List (Firestore Realtime)
  * FIX: Đã khôi phục orderBy(createdAt) vì tất cả users đã có createdAt
+ * Thêm biểu đồ đăng ký user theo tháng
  */
 
 "use client";
@@ -16,6 +17,15 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../../utils/config";
 import { banUser, restoreUser, sendResetPasswordEmail } from "../../../services/adminService";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
 
 // Icons
 import {
@@ -34,6 +44,7 @@ import {
   Crown,
   Loader,
   Check,
+  TrendingUp,
 } from "lucide-react";
 
 // ==================== TYPES ====================
@@ -96,65 +107,70 @@ const AVATAR_GRADS = [
 ];
 const gradFor = (uid: string) => AVATAR_GRADS[uid.charCodeAt(uid.length - 1) % AVATAR_GRADS.length];
 
-// ==================== COMPONENTS ====================
-const ResetPasswordButton = ({ email, onReset }: { email: string; onReset: (email: string) => void }) => {
-  const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const handleClick = async () => {
-    setLoading(true);
-    await onReset(email);
-    setLoading(false);
-    setSent(true);
-    setTimeout(() => setSent(false), 3000);
-  };
-  return (
-    <button
-      onClick={handleClick}
-      disabled={loading}
-      style={{
-        width: 32, height: 32, borderRadius: 8,
-        background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        cursor: loading ? "wait" : "pointer", color: "#C7C4D8",
-      }}
-    >
-      {loading ? <Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> : sent ? <Check size={14} color="#45f1c5" /> : <RotateCcw size={14} />}
-    </button>
-  );
-};
+// ==================== USER REGISTRATION CHART ====================
+interface ChartPoint {
+  month: string;
+  count: number;
+}
 
-const BanConfirmDialog = ({ user, action, onConfirm, onCancel }: {
-  user: AppUser; action: "ban" | "unban"; onConfirm: () => void; onCancel: () => void;
-}) => {
-  const isBan = action === "ban";
-  const color = isBan ? "#ffb4ab" : "#45f1c5";
+function UserRegistrationChart({ users }: { users: AppUser[] }) {
+  const [chartData, setChartData] = useState<ChartPoint[]>([]);
+
+  useEffect(() => {
+    const monthMap = new Map<string, number>();
+    const now = new Date();
+    // Tạo 6 tháng gần nhất (từ tháng hiện tại lùi về 5 tháng)
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toLocaleString("default", { month: "short" });
+      monthMap.set(key, 0);
+    }
+
+    users.forEach((user) => {
+      const monthKey = user.createdAt.toLocaleString("default", { month: "short" });
+      if (monthMap.has(monthKey)) {
+        monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + 1);
+      }
+    });
+
+    const data = Array.from(monthMap.entries()).map(([month, count]) => ({ month, count }));
+    setChartData(data);
+  }, [users]);
+
+  if (users.length === 0) return null;
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => e.target === e.currentTarget && onCancel()}>
-      <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 400, border: `1px solid ${color}` }}>
-        <h3>{isBan ? "Ban user?" : "Unban user?"}</h3>
-        <p>{user.displayName} ({user.email}) sẽ bị {isBan ? "cấm" : "khôi phục"}.</p>
-        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
-          <button onClick={onCancel}>Cancel</button>
-          <button onClick={onConfirm} style={{ background: color, color: "#000" }}>Confirm</button>
+    <div style={{ background: "rgba(26,26,46,.6)", borderRadius: 20, border: "1px solid rgba(255,255,255,.06)", padding: "20px 16px", marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(108,99,255,.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <TrendingUp size={16} color="#6C63FF" />
+        </div>
+        <div>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: "#E4E1EE" }}>User Registration Trend</h3>
+          <p style={{ fontSize: 11, color: "#C7C4D8" }}>Monthly new users (last 6 months)</p>
         </div>
       </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="userGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#6C63FF" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#6C63FF" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.04)" vertical={false} />
+          <XAxis dataKey="month" tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "#C7C4D8", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(108,99,255,0.3)", borderRadius: 12 }}
+            labelStyle={{ color: "#E4E1EE" }}
+          />
+          <Area type="monotone" dataKey="count" stroke="#6C63FF" strokeWidth={2} fill="url(#userGrad)" dot={{ fill: "#6C63FF", r: 3 }} />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
-};
-
-const UserDetailModal = ({ user, onClose }: { user: AppUser; onClose: () => void }) => (
-  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-    <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 500 }} onClick={e => e.stopPropagation()}>
-      <h3>{user.displayName}</h3>
-      <p>Email: {user.email}</p>
-      <p>Role: {user.role}</p>
-      <p>Status: {user.status}</p>
-      <p>XP: {user.xp}</p>
-      <p>Level: {user.level}</p>
-      <button onClick={onClose}>Close</button>
-    </div>
-  </div>
-);
+}
 
 // ==================== MAIN ====================
 export default function UserListAdmin() {
@@ -171,7 +187,7 @@ export default function UserListAdmin() {
   const [viewUser, setViewUser] = useState<AppUser | null>(null);
   const pageSize = 8;
 
-  // ========== REALTIME LISTENER - ĐÃ KHÔI PHỤC orderBy ==========
+  // Realtime listener
   useEffect(() => {
     console.log("[UserList] Setting up Firestore listener with orderBy(createdAt)");
     const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
@@ -192,7 +208,7 @@ export default function UserListAdmin() {
             displayName: data.displayName || data.name || "No name",
             photoURL: data.photoURL || null,
             level: data.level || 1,
-            xp: data.xp || 0,
+            xp: data.totalXP || 0,
             status: data.status || "active",
             role: (data.role === "admin" ? "admin" : 
                    data.role === "instructor" ? "instructor" : 
@@ -204,7 +220,6 @@ export default function UserListAdmin() {
           });
         });
 
-        // Không cần sort client-side nữa vì Firestore đã sort sẵn
         setUsers(userList);
         setLoading(false);
         setError(null);
@@ -218,7 +233,7 @@ export default function UserListAdmin() {
     return () => unsub();
   }, []);
 
-  // ========== FILTERS & PAGINATION ==========
+  // Filters & Pagination
   const filtered = useMemo(() => {
     let data = [...users];
     const q = search.toLowerCase();
@@ -295,6 +310,9 @@ export default function UserListAdmin() {
         ))}
       </div>
 
+      {/* User Registration Chart */}
+      <UserRegistrationChart users={users} />
+
       {/* Filters */}
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
@@ -317,7 +335,7 @@ export default function UserListAdmin() {
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#C7C4D8" }}>{filtered.length} users</span>
       </div>
 
-      {/* Table */}
+      {/* User Table */}
       <div style={{ background: "rgba(26,26,46,.6)", borderRadius: 20, border: "1px solid rgba(255,255,255,.06)", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 800 }}>
@@ -329,7 +347,7 @@ export default function UserListAdmin() {
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Status</th>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Last Login</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Actions</th>
-               </tr>
+              </tr>
             </thead>
             <tbody>
               {paginated.map(user => {
@@ -400,3 +418,61 @@ export default function UserListAdmin() {
     </div>
   );
 }
+
+// ==================== Helper Components ====================
+const ResetPasswordButton = ({ email, onReset }: { email: string; onReset: (email: string) => void }) => {
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const handleClick = async () => {
+    setLoading(true);
+    await onReset(email);
+    setLoading(false);
+    setSent(true);
+    setTimeout(() => setSent(false), 3000);
+  };
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      style={{
+        width: 32, height: 32, borderRadius: 8,
+        background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: loading ? "wait" : "pointer", color: "#C7C4D8",
+      }}
+    >
+      {loading ? <Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> : sent ? <Check size={14} color="#45f1c5" /> : <RotateCcw size={14} />}
+    </button>
+  );
+};
+
+const BanConfirmDialog = ({ user, action, onConfirm, onCancel }: { user: AppUser; action: "ban" | "unban"; onConfirm: () => void; onCancel: () => void; }) => {
+  const isBan = action === "ban";
+  const color = isBan ? "#ffb4ab" : "#45f1c5";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={(e) => e.target === e.currentTarget && onCancel()}>
+      <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 400, border: `1px solid ${color}` }}>
+        <h3>{isBan ? "Ban user?" : "Unban user?"}</h3>
+        <p>{user.displayName} ({user.email}) sẽ bị {isBan ? "cấm" : "khôi phục"}.</p>
+        <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onConfirm} style={{ background: color, color: "#000" }}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const UserDetailModal = ({ user, onClose }: { user: AppUser; onClose: () => void }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+    <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+      <h3>{user.displayName}</h3>
+      <p>Email: {user.email}</p>
+      <p>Role: {user.role}</p>
+      <p>Status: {user.status}</p>
+      <p>XP: {user.xp}</p>
+      <p>Level: {user.level}</p>
+      <button onClick={onClose}>Close</button>
+    </div>
+  </div>
+);

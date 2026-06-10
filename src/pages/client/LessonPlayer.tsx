@@ -158,6 +158,7 @@ export default function LessonPlayer() {
             videoUrl={lesson.videoUrl || ""}
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
+            isCompleted={completed}
           />
         )}
 
@@ -172,6 +173,7 @@ export default function LessonPlayer() {
             passingScore={passingScore}
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
+            isCompleted={completed}
           />
         )}
 
@@ -185,6 +187,7 @@ export default function LessonPlayer() {
             content={readingContent}
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
+            isCompleted={completed}
           />
         )}
 
