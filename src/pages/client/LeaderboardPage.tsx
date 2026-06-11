@@ -1,9 +1,10 @@
 // src/pages/client/LeaderboardPage.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useCollection } from "../../hooks/useFirestore";
 import { orderBy, limit } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
 import { Trophy, Zap, Flame, Search, Loader } from "lucide-react";
+import { checkAndUnlockAchievements } from "../../services/achievementService";
 
 interface LeaderboardUser {
   uid: string;
@@ -33,6 +34,7 @@ export default function LeaderboardPage() {
   const { currentUser } = useAuth();
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"xp" | "streak">("xp");
+  const hasTriggeredRank = useRef(false);
 
   const {
     data: usersData,
@@ -70,6 +72,20 @@ export default function LeaderboardPage() {
     const idx = filtered.findIndex((u) => u.uid === currentUserId);
     return idx !== -1 ? idx + 1 : null;
   }, [filtered, currentUserId]);
+
+  // ✅ Kiểm tra thành tựu leaderboard rank
+  useEffect(() => {
+    if (!currentUser || currentUserRank === null || hasTriggeredRank.current) return;
+    const rank = currentUserRank;
+    const thresholds = [1, 3, 10];
+    for (const th of thresholds) {
+      if (rank <= th) {
+        checkAndUnlockAchievements(currentUser.uid, "leaderboard_rank", th, { leaderboardRank: rank });
+        hasTriggeredRank.current = true;
+        break;
+      }
+    }
+  }, [currentUser, currentUserRank]);
 
   if (loading) {
     return (

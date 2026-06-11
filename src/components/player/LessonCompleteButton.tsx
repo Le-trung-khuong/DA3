@@ -1,9 +1,5 @@
-/**
- * src/components/player/LessonCompleteButton.tsx
- * Nút đánh dấu hoàn thành bài học – có nhận trạng thái completed từ ngoài
- */
-
-import React, { useState } from "react";
+// src/components/player/LessonCompleteButton.tsx
+import React, { useState, useRef } from "react";
 import { CheckCircle, Loader } from "lucide-react";
 import { completeLesson } from "../../services/progressService";
 
@@ -15,7 +11,7 @@ interface LessonCompleteButtonProps {
   xpReward: number;
   onComplete?: () => void;
   disabled?: boolean;
-  isCompleted?: boolean; // ✅ thêm prop này
+  isCompleted?: boolean;
 }
 
 export function LessonCompleteButton({
@@ -26,17 +22,19 @@ export function LessonCompleteButton({
   xpReward,
   onComplete,
   disabled = false,
-  isCompleted = false, // ✅ mặc định false
+  isCompleted = false,
 }: LessonCompleteButtonProps) {
   const [loading, setLoading] = useState(false);
   const [localCompleted, setLocalCompleted] = useState(false);
+  const loadingRef = useRef(false);
 
-  // Hiển thị completed nếu đã hoàn thành từ trước HOẶC vừa mới hoàn thành
   const showCompleted = isCompleted || localCompleted;
 
   const handleComplete = async () => {
-    if (loading || showCompleted || disabled) return;
+    if (loadingRef.current || showCompleted || disabled) return;
+    loadingRef.current = true;
     setLoading(true);
+
     try {
       await completeLesson(userId, courseId, moduleId, lessonId, xpReward);
       setLocalCompleted(true);
@@ -45,6 +43,7 @@ export function LessonCompleteButton({
       console.error("Failed to mark lesson complete:", error);
       alert("Không thể cập nhật tiến độ. Vui lòng thử lại.");
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   };

@@ -6,12 +6,13 @@
 import { useState, useEffect } from "react";
 import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { db } from "../utils/config";
-import { Progress } from "../types/progress";
+import { Progress, ResumeData } from "../types/progress";
 
 export function useProgress(userId: string | undefined, courseId: string | undefined) {
   const [progress, setProgress] = useState<Progress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [resumeDataMap, setResumeDataMap] = useState<Record<string, ResumeData>>({});
 
   // Hàm fetch lại dữ liệu (có thể gọi thủ công sau khi complete)
   const refreshProgress = async () => {
@@ -28,6 +29,13 @@ export function useProgress(userId: string | undefined, courseId: string | undef
         ...doc.data(),
       })) as unknown as Progress[];
       setProgress(data);
+      // Build resume data map
+      const newMap: Record<string, ResumeData> = {};
+      snapshot.docs.forEach(doc => {
+        const d = doc.data();
+        if (d.resumeData) newMap[d.lessonId] = d.resumeData;
+      });
+      setResumeDataMap(newMap);
     } catch (err) {
       console.error("refreshProgress error:", err);
     }
@@ -36,6 +44,7 @@ export function useProgress(userId: string | undefined, courseId: string | undef
   useEffect(() => {
     if (!userId || !courseId) {
       setProgress([]);
+      setResumeDataMap({});
       setLoading(false);
       return;
     }
@@ -54,6 +63,13 @@ export function useProgress(userId: string | undefined, courseId: string | undef
           ...doc.data(),
         })) as unknown as Progress[];
         setProgress(data);
+        // Build resume data map
+        const newMap: Record<string, ResumeData> = {};
+        snapshot.docs.forEach(doc => {
+          const d = doc.data();
+          if (d.resumeData) newMap[d.lessonId] = d.resumeData;
+        });
+        setResumeDataMap(newMap);
         setLoading(false);
         setError(null);
       },
@@ -67,7 +83,7 @@ export function useProgress(userId: string | undefined, courseId: string | undef
     return () => unsubscribe();
   }, [userId, courseId]);
 
-  // Helper: kiểm tra lesson đã hoàn thành chưa (đã sửa bug)
+  // Helper: kiểm tra lesson đã hoàn thành chưa
   const isLessonCompleted = (moduleId: string, lessonId: string): boolean => {
     return progress.some(
       (p) => p.moduleId === moduleId && p.lessonId === lessonId && p.status === "completed"
@@ -86,6 +102,11 @@ export function useProgress(userId: string | undefined, courseId: string | undef
     return p?.flashcardProgress;
   };
 
+  // Helper: lấy resume data cho một lesson
+  const getResumeData = (lessonId: string): ResumeData | null => {
+    return resumeDataMap[lessonId] || null;
+  };
+
   return {
     progress,
     loading,
@@ -93,6 +114,7 @@ export function useProgress(userId: string | undefined, courseId: string | undef
     isLessonCompleted,
     getQuizScore,
     getFlashcardProgress,
-    refreshProgress,   // đã thêm
+    refreshProgress,
+    getResumeData,
   };
 }

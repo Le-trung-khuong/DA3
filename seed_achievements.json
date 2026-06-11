@@ -1,0 +1,90 @@
+[
+  {
+    "id": "first_lesson",
+    "title": "First Step",
+    "description": "Completed your first lesson",
+    "icon": "🎓",
+    "category": "lesson",
+    "criteria": { "type": "lessons_completed", "threshold": 1 },
+    "xpReward": 50,
+    "rarity": "common",
+    "order": 1
+  },
+  {
+    "id": "xp_100",
+    "title": "Centurion",
+    "description": "Earned 100 XP",
+    "icon": "⚡",
+    "category": "xp",
+    "criteria": { "type": "total_xp", "threshold": 100 },
+    "xpReward": 100,
+    "rarity": "common",
+    "order": 2
+  },
+  {
+    "id": "streak_7",
+    "title": "Consistency",
+    "description": "7 day learning streak",
+    "icon": "🔥",
+    "category": "streak",
+    "criteria": { "type": "streak_days", "threshold": 7 },
+    "xpReward": 200,
+    "rarity": "rare",
+    "order": 3
+  },
+  {
+    "id": "first_course",
+    "title": "Graduate",
+    "description": "Completed your first course",
+    "icon": "🏆",
+    "category": "course",
+    "criteria": { "type": "courses_completed", "threshold": 1 },
+    "xpReward": 500,
+    "rarity": "rare",
+    "order": 4
+  },
+  {
+    "id": "xp_1000",
+    "title": "XP Master",
+    "description": "Earned 1000 XP",
+    "icon": "⭐",
+    "category": "xp",
+    "criteria": { "type": "total_xp", "threshold": 1000 },
+    "xpReward": 500,
+    "rarity": "epic",
+    "order": 5
+  },
+  {
+    "id": "streak_30",
+    "title": "Dedication",
+    "description": "30 day learning streak",
+    "icon": "🔥🔥",
+    "category": "streak",
+    "criteria": { "type": "streak_days", "threshold": 30 },
+    "xpReward": 1000,
+    "rarity": "epic",
+    "order": 6
+  },
+  {
+    "id": "leaderboard_top10",
+    "title": "Top Learner",
+    "description": "Ranked in top 10 of the leaderboard",
+    "icon": "🏅",
+    "category": "leaderboard",
+    "criteria": { "type": "leaderboard_rank", "threshold": 10 },
+    "xpReward": 1000,
+    "rarity": "epic",
+    "order": 7
+  },
+  {
+    "id": "leaderboard_top1",
+    "title": "Champion",
+    "description": "Ranked #1 on the leaderboard",
+    "icon": "👑",
+    "category": "leaderboard",
+    "criteria": { "type": "leaderboard_rank", "threshold": 1 },
+    "xpReward": 5000,
+    "rarity": "legendary",
+    "order": 8
+  }
+]

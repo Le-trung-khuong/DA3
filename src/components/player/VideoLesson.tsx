@@ -1,7 +1,9 @@
 // src/components/player/VideoLesson.tsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Bookmark, FileText, X, CheckCircle } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
+import { saveResumeData, getResumeData } from "../../services/progressService";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface VideoLessonProps {
   userId: string;
@@ -72,6 +74,37 @@ export function VideoLesson({
     }
   }, [currentTime, duration]);
 
+  // ✅ Load resume data
+  useEffect(() => {
+    const loadResume = async () => {
+      if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+      const data = await getResumeData(userId, courseId, moduleId, lessonId);
+      if (data?.videoCurrentTime && videoRef.current) {
+        videoRef.current.currentTime = data.videoCurrentTime;
+        setCurrentTime(data.videoCurrentTime);
+      }
+    };
+    loadResume();
+  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+
+  // ✅ Auto-save resume data (debounced)
+  const saveCurrentTime = useCallback(async () => {
+    if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+    if (videoRef.current && !isNaN(videoRef.current.currentTime)) {
+      await saveResumeData(userId, courseId, moduleId, lessonId, {
+        videoCurrentTime: videoRef.current.currentTime,
+      });
+    }
+  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+
+  useEffect(() => {
+    if (!videoRef.current || isCompleted) return;
+    const interval = setInterval(() => {
+      saveCurrentTime();
+    }, 5000); // lưu mỗi 5 giây
+    return () => clearInterval(interval);
+  }, [saveCurrentTime, isCompleted]);
+
   const handlePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) videoRef.current.pause();
@@ -123,7 +156,6 @@ export function VideoLesson({
     return `${mins}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  // Only allow complete if watchProgress >= 80%
   const canComplete = watchProgress >= 80 && !isCompleted;
 
   if (isYouTube && embedUrl) {
@@ -154,7 +186,6 @@ export function VideoLesson({
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>{title}</h2>
         <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#C7C4D8", marginTop: 8 }}>
@@ -164,7 +195,6 @@ export function VideoLesson({
         </div>
       </div>
 
-      {/* Video player */}
       <div style={{ position: "relative", background: "#000", borderRadius: 16, overflow: "hidden", marginBottom: 16 }}>
         <video
           ref={videoRef}
@@ -174,7 +204,6 @@ export function VideoLesson({
           onLoadedMetadata={handleLoadedMetadata}
           style={{ width: "100%", display: "block" }}
         />
-        {/* Custom controls (simplified, but keep existing) */}
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
           background: "linear-gradient(to top, rgba(0,0,0,0.8), transparent)",
@@ -193,7 +222,6 @@ export function VideoLesson({
           <button onClick={handleFullscreen} style={{ background: "none", border: "none", cursor: "pointer", color: "#fff" }}>
             <Maximize size={18} />
           </button>
-          {/* Playback speed */}
           <select value={playbackRate} onChange={(e) => handleSpeedChange(Number(e.target.value))}
             style={{ background: "rgba(0,0,0,0.7)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8, padding: "4px 8px", color: "#fff", fontSize: 12, cursor: "pointer" }}>
             {[0.5, 1, 1.25, 1.5, 2].map(rate => (
@@ -209,7 +237,6 @@ export function VideoLesson({
         </div>
       </div>
 
-      {/* Bookmark list */}
       {bookmarks.length > 0 && (
         <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
           {bookmarks.map((time, idx) => (
@@ -221,7 +248,6 @@ export function VideoLesson({
         </div>
       )}
 
-      {/* Notes panel */}
       {showNotes && (
         <div style={{ background: "rgba(26,26,46,0.8)", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid rgba(108,99,255,0.2)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -234,7 +260,6 @@ export function VideoLesson({
         </div>
       )}
 
-      {/* Transcript placeholder (can be extended) */}
       {showTranscript && (
         <div style={{ background: "rgba(26,26,46,0.8)", borderRadius: 16, padding: 16, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -245,7 +270,6 @@ export function VideoLesson({
         </div>
       )}
 
-      {/* Watch progress bar */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#C7C4D8", marginBottom: 6 }}>
           <span>Watch progress</span>

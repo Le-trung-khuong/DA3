@@ -18,6 +18,8 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  lazy,
+  Suspense,
   type DragEvent,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -64,10 +66,57 @@ import {
   PauseCircle,
 } from "lucide-react";
 
-// ─── Editor components cho từng loại lesson ───────────────────────────
-import { QuizEditor } from "../../../components/admin/QuizEditor";
-import { ReadingEditor } from "../../../components/admin/ReadingEditor";
-import { FlashcardEditor } from "../../../components/admin/FlashcardEditor";
+// ─── Editor components lazy load ─────────────────────────────────────
+// NẾU các editor được export default, dùng:
+// const QuizEditor = lazy(() => import("../../../components/admin/QuizEditor"));
+// NẾU các editor được export named (ví dụ: export const QuizEditor = ...), dùng:
+const QuizEditor = lazy(() =>
+  import("../../../components/admin/QuizEditor").then((module) => ({
+    default: module.QuizEditor,
+  }))
+);
+const ReadingEditor = lazy(() =>
+  import("../../../components/admin/ReadingEditor").then((module) => ({
+    default: module.ReadingEditor,
+  }))
+);
+const FlashcardEditor = lazy(() =>
+  import("../../../components/admin/FlashcardEditor").then((module) => ({
+    default: module.FlashcardEditor,
+  }))
+);
+
+// Định nghĩa kiểu dữ liệu cho các props của editor (dùng chung)
+type QuizEditorProps = {
+  questions: any[];
+  onChange: (questions: any[]) => void;
+};
+type ReadingEditorProps = {
+  markdown: string;
+  onChange: (markdown: string) => void;
+};
+type FlashcardEditorProps = {
+  cards: any[];
+  onChange: (cards: any[]) => void;
+};
+
+const EditorLoader = () => (
+  <div style={{ padding: "20px", textAlign: "center" }}>
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: "50%",
+        border: "2px solid rgba(108,99,255,0.2)",
+        borderTopColor: "#6C63FF",
+        animation: "spin 0.8s linear infinite",
+        margin: "0 auto",
+      }}
+    />
+    <p style={{ fontSize: 12, color: "#C7C4D8", marginTop: 12 }}>Loading editor...</p>
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -602,24 +651,30 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
             )}
           </div>
 
-          {/* Content editors */}
+          {/* Content editors - Lazy loaded with Suspense */}
           {lesson.type === "quiz" && (
-            <QuizEditor
-              questions={lesson.content?.data?.questions || []}
-              onChange={(questions) => handleContentChange({ type: "quiz", data: { questions, passingScore: lesson.content?.data?.passingScore || 70 } })}
-            />
+            <Suspense fallback={<EditorLoader />}>
+              <QuizEditor
+                questions={lesson.content?.data?.questions || []}
+                onChange={(questions: any[]) => handleContentChange({ type: "quiz", data: { questions, passingScore: lesson.content?.data?.passingScore || 70 } })}
+              />
+            </Suspense>
           )}
           {lesson.type === "reading" && (
-            <ReadingEditor
-              markdown={lesson.content?.data?.markdown || ""}
-              onChange={(markdown) => handleContentChange({ type: "reading", data: { markdown } })}
-            />
+            <Suspense fallback={<EditorLoader />}>
+              <ReadingEditor
+                markdown={lesson.content?.data?.markdown || ""}
+                onChange={(markdown: string) => handleContentChange({ type: "reading", data: { markdown } })}
+              />
+            </Suspense>
           )}
           {lesson.type === "flashcard" && (
-            <FlashcardEditor
-              cards={lesson.content?.data?.cards || []}
-              onChange={(cards) => handleContentChange({ type: "flashcard", data: { cards } })}
-            />
+            <Suspense fallback={<EditorLoader />}>
+              <FlashcardEditor
+                cards={lesson.content?.data?.cards || []}
+                onChange={(cards: any[]) => handleContentChange({ type: "flashcard", data: { cards } })}
+              />
+            </Suspense>
           )}
         </div>
       )}
@@ -1133,17 +1188,19 @@ export default function CourseFormAdmin() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif", backgroundImage: "radial-gradient(circle at 5% 0%, rgba(108,99,255,.06) 0%, transparent 50%)" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{margin:0;}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes fadeDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-        input,select,textarea,button{font-family:Inter,sans-serif;}
-        ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-track{background:#0F0F1A;} ::-webkit-scrollbar-thumb{background:#2a292d;border-radius:10px;}
-        textarea::-webkit-resizer{display:none;}
-      `}</style>
+      <style>
+        {`
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+          *{box-sizing:border-box;margin:0;padding:0;}
+          body{margin:0;}
+          @keyframes spin{to{transform:rotate(360deg)}}
+          @keyframes fadeDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+          @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+          input,select,textarea,button{font-family:Inter,sans-serif;}
+          ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-track{background:#0F0F1A;} ::-webkit-scrollbar-thumb{background:#2a292d;border-radius:10px;}
+          textarea::-webkit-resizer{display:none;}
+        `}
+      </style>
 
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(15,15,26,.92)", backdropFilter: "blur(18px)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", gap: 16 }}>

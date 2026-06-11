@@ -9,6 +9,7 @@ import {
   limit,
   doc,
   getDoc,
+  getDocsFromCache, // không dùng
 } from "firebase/firestore";
 import { db } from "../utils/config";
 
@@ -61,25 +62,27 @@ export function useUserStats(userId: string | undefined) {
         const progressSnap = await getDocs(progressQuery);
         const completedLessons = progressSnap.size;
 
-        // 4. Tính số khóa đã hoàn thành
+        // 4. Tính số khóa đã hoàn thành – ✅ dùng batch get + totalLessons từ course
         let completedCourses = 0;
         if (courseIds.length > 0) {
+          // Batch get courses (tối đa 30 mỗi lần)
+          const batchSize = 30;
           const courseTotalLessons: Record<string, number> = {};
-          for (const cid of courseIds) {
-            const courseRef = doc(db, "courses", cid);
-            const courseSnap = await getDoc(courseRef);
-            if (courseSnap.exists()) {
-              const data = courseSnap.data();
-              let total = 0;
-              if (data.modules) {
-                data.modules.forEach((module: any) => {
-                  total += module.lessons?.length || 0;
-                });
+          for (let i = 0; i < courseIds.length; i += batchSize) {
+            const batchIds = courseIds.slice(i, i + batchSize);
+            const courseRefs = batchIds.map(cid => doc(db, "courses", cid));
+            const courseSnaps = await Promise.all(courseRefs.map(ref => getDoc(ref)));
+            courseSnaps.forEach((snap, idx) => {
+              if (snap.exists()) {
+                const data = snap.data();
+                // ✅ Dùng trường totalLessons đã được pre-calc khi tạo/sửa course
+                const total = data.totalLessons || 0;
+                courseTotalLessons[batchIds[idx]] = total;
               }
-              courseTotalLessons[cid] = total;
-            }
+            });
           }
 
+          // Đếm số lesson hoàn thành theo course
           const completedPerCourse: Record<string, number> = {};
           progressSnap.forEach((docSnap) => {
             const p = docSnap.data();
@@ -106,7 +109,7 @@ export function useUserStats(userId: string | undefined) {
         });
         const averageQuizScore = quizCount > 0 ? totalQuizScore / quizCount : 0;
 
-        // 6. XP over time từ xp_logs (đã sửa trường timestamp)
+        // 6. XP over time từ xp_logs
         const xpLogsQuery = query(
           collection(db, "xp_logs"),
           where("userId", "==", userId),
@@ -117,7 +120,7 @@ export function useUserStats(userId: string | undefined) {
         const xpByDate: Record<string, number> = {};
         xpLogsSnap.forEach((docSnap) => {
           const data = docSnap.data();
-          const ts = data.timestamp?.toDate(); // sửa từ data.createdAt
+          const ts = data.timestamp?.toDate();
           if (ts) {
             const date = ts.toISOString().split("T")[0];
             const amount = data.amount > 0 ? data.amount : 0;

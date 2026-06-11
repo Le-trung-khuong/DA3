@@ -3,6 +3,9 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useDocument } from "../../hooks/useFirestore";
 import { useUserStats } from "../../hooks/useUserStats";
+import { useCertificates } from "../../hooks/useCertificates";
+import { useAchievements } from "../../hooks/useAchievements";
+import { CertificateCard } from "../../components/certificate/CertificateCard";
 import {
   User,
   Mail,
@@ -15,6 +18,7 @@ import {
   Award,
   TrendingUp,
   Clock,
+  Lock,
 } from "lucide-react";
 import {
   AreaChart,
@@ -40,6 +44,8 @@ export default function ProfilePage() {
   const userId = currentUser?.uid;
   const { data: userDoc, loading: userLoading } = useDocument<UserDoc>("users", userId);
   const { stats, loading: statsLoading } = useUserStats(userId);
+  const { certificates, loading: certsLoading } = useCertificates(userId);
+  const { achievements, loading: achLoading } = useAchievements(userId);
 
   const [joinedDate, setJoinedDate] = useState<Date | null>(null);
   const [lastActive, setLastActive] = useState<Date | null>(null);
@@ -76,7 +82,6 @@ export default function ProfilePage() {
   const role = userDoc?.role || userProfile?.role || "student";
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
-  // Stats from hook
   const totalXP = stats?.totalXP ?? 0;
   const level = stats?.level ?? 1;
   const streak = stats?.currentStreak ?? 0;
@@ -86,6 +91,8 @@ export default function ProfilePage() {
   const avgQuizScore = stats?.averageQuizScore ?? 0;
 
   const xpData = stats?.xpOverTime ?? [];
+  const unlockedAchievements = achievements.filter(a => a.isUnlocked);
+  const lockedAchievements = achievements.filter(a => !a.isUnlocked);
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px", color: "#E4E1EE" }}>
@@ -209,6 +216,103 @@ export default function ProfilePage() {
               <Area type="monotone" dataKey="xp" stroke="#6C63FF" strokeWidth={2} fill="url(#colorXp)" dot={{ fill: "#6C63FF", r: 3 }} />
             </AreaChart>
           </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Certificates Section */}
+      {certificates.length > 0 && (
+        <div
+          style={{
+            background: "rgba(26,26,46,0.65)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 24,
+            padding: 24,
+            marginBottom: 32,
+          }}
+        >
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+            <Award size={20} color="#FFD700" /> Certificates Earned
+          </h3>
+          {certsLoading ? (
+            <div style={{ textAlign: "center", padding: 20, color: "#C7C4D8" }}>Loading certificates...</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+              {certificates.map((cert) => (
+                <CertificateCard key={cert.id} certificate={cert} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Achievements Section */}
+      <div
+        style={{
+          background: "rgba(26,26,46,0.65)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 24,
+          padding: 24,
+          marginBottom: 32,
+        }}
+      >
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+          <Award size={20} color="#FFD700" /> Badges & Achievements
+        </h3>
+        {achLoading ? (
+          <div style={{ textAlign: "center", padding: 20, color: "#C7C4D8" }}>Loading achievements...</div>
+        ) : (
+          <>
+            {unlockedAchievements.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#45f1c5", marginBottom: 12 }}>Unlocked</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 16 }}>
+                  {unlockedAchievements.map(ach => (
+                    <div
+                      key={ach.id}
+                      style={{
+                        textAlign: "center",
+                        background: "rgba(108,99,255,0.15)",
+                        borderRadius: 16,
+                        padding: 12,
+                        border: "1px solid rgba(108,99,255,0.3)",
+                      }}
+                    >
+                      <div style={{ fontSize: 32 }}>{ach.icon}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#E4E1EE" }}>{ach.title}</div>
+                      <div style={{ fontSize: 10, color: "#C7C4D8" }}>
+                        {ach.unlockedAt?.toLocaleDateString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {lockedAchievements.length > 0 && (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#C7C4D8", marginBottom: 12 }}>Locked</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 16 }}>
+                  {lockedAchievements.map(ach => (
+                    <div
+                      key={ach.id}
+                      style={{
+                        textAlign: "center",
+                        background: "rgba(255,255,255,0.03)",
+                        borderRadius: 16,
+                        padding: 12,
+                        opacity: 0.6,
+                      }}
+                    >
+                      <div style={{ fontSize: 32, filter: "grayscale(1)" }}>{ach.icon}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "#C7C4D8" }}>{ach.title}</div>
+                      <div style={{ fontSize: 10, color: "#47464f" }}>
+                        {ach.criteria.type.replace("_", " ")}: {ach.criteria.threshold}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -1,8 +1,8 @@
 // src/components/player/FlashcardLesson.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight, RotateCw, CheckCircle, RefreshCw, BarChart2 } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
-import { saveFlashcardProgress } from "../../services/progressService";
+import { saveFlashcardProgress, saveResumeData, getResumeData } from "../../services/progressService";
 
 interface FlashcardCard {
   id: string;
@@ -37,21 +37,45 @@ export function FlashcardLesson({
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const [stats, setStats] = useState({ totalReviewed: 0, correct: 0 });
 
+  // Load saved mastered from progress (existing)
   useEffect(() => {
-    // Load saved mastered from progress
     if (savedProgress?.rememberedCards) {
-      // mock: assume first N cards are mastered
       const masteredIds = cards.slice(0, savedProgress.rememberedCards).map(c => c.id);
       setMastered(new Set(masteredIds));
     }
   }, [savedProgress, cards]);
+
+  // Load resume data (currentIndex + reviewQueue)
+  useEffect(() => {
+    const loadResume = async () => {
+      if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+      const data = await getResumeData(userId, courseId, moduleId, lessonId);
+      if (data) {
+        if (data.flashcardCurrentIndex !== undefined) setCurrentIndex(data.flashcardCurrentIndex);
+        if (data.flashcardReviewQueue) setReviewQueue(data.flashcardReviewQueue);
+      }
+    };
+    loadResume();
+  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+
+  // Auto-save resume data when index or queue changes
+  useEffect(() => {
+    if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+    const timeout = setTimeout(() => {
+      saveResumeData(userId, courseId, moduleId, lessonId, {
+        flashcardCurrentIndex: currentIndex,
+        flashcardReviewQueue: reviewQueue,
+      });
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [currentIndex, reviewQueue, userId, courseId, moduleId, lessonId, isCompleted]);
 
   const totalCards = cards.length;
   const currentCard = cards[currentIndex];
   const masteredCount = mastered.size;
   const allMastered = masteredCount === totalCards;
 
-  // Auto-save progress
+  // Auto-save flashcard progress (existing)
   useEffect(() => {
     const save = async () => {
       const flashcardProgress = {
@@ -61,23 +85,21 @@ export function FlashcardLesson({
           timesReviewed: mastered.has(card.id) ? 1 : 0,
           lastReviewedAt: new Date(),
         }])),
-        masteredCount,
-        totalCount: totalCards,
+        masteredCount: mastered.size,
+        totalCount: cards.length,
         lastActivityAt: new Date(),
       };
       await saveFlashcardProgress(userId, courseId, moduleId, lessonId, flashcardProgress);
     };
     save();
-  }, [masteredCount, currentIndex]);
+  }, [mastered, currentIndex, cards, userId, courseId, moduleId, lessonId]);
 
   const handleFlip = () => setFlipped(!flipped);
 
   const handleDifficulty = (difficulty: Difficulty) => {
     if (difficulty === "again") {
-      // keep in review queue
       setReviewQueue(prev => [...prev, currentCard.id]);
     } else if (difficulty === "hard") {
-      // review later
       setReviewQueue(prev => [...prev, currentCard.id]);
     } else if (difficulty === "good") {
       setMastered(prev => new Set(prev).add(currentCard.id));
@@ -93,7 +115,6 @@ export function FlashcardLesson({
       setCurrentIndex(currentIndex + 1);
       setFlipped(false);
     } else if (reviewQueue.length > 0) {
-      // review mode: show missed cards
       const nextId = reviewQueue.shift();
       const idx = cards.findIndex(c => c.id === nextId);
       if (idx !== -1) setCurrentIndex(idx);
@@ -139,7 +160,6 @@ export function FlashcardLesson({
     );
   }
 
-  // Mode selector
   if (mode !== "learn") {
     return (
       <div style={{ maxWidth: 500, margin: "0 auto", textAlign: "center" }}>
@@ -161,12 +181,10 @@ export function FlashcardLesson({
         <span style={{ fontSize: 14, color: "#C7C4D8" }}>{masteredCount}/{totalCards} mastered</span>
       </div>
 
-      {/* Progress bar */}
       <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, marginBottom: 24 }}>
         <div style={{ width: `${(masteredCount/totalCards)*100}%`, height: "100%", background: "#45f1c5", borderRadius: 2 }} />
       </div>
 
-      {/* Flashcard */}
       <div onClick={handleFlip} style={{ perspective: "1000px", cursor: "pointer", marginBottom: 24 }}>
         <div style={{ position: "relative", width: "100%", height: 320, transition: "transform 0.6s", transformStyle: "preserve-3d", transform: flipped ? "rotateY(180deg)" : "none" }}>
           <div style={{ position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden", background: "linear-gradient(135deg,#1a1a2e,#0d0d18)", borderRadius: 20, border: "1px solid rgba(108,99,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
@@ -179,7 +197,6 @@ export function FlashcardLesson({
         </div>
       </div>
 
-      {/* Difficulty buttons (only when flipped) */}
       {flipped && (
         <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 24 }}>
           {(["again","hard","good","easy"] as Difficulty[]).map(d => (
@@ -191,7 +208,6 @@ export function FlashcardLesson({
         </div>
       )}
 
-      {/* Navigation */}
       <div style={{ display: "flex", justifyContent: "center", gap: 12 }}>
         <button onClick={prevCard} disabled={currentIndex === 0}
           style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", color: "#C7C4D8" }}>
@@ -208,7 +224,7 @@ export function FlashcardLesson({
       </div>
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
-        <button onClick={() => setMode("learn")} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
+        <button onClick={() => { setMode("learn"); setCurrentIndex(0); setFlipped(false); setMastered(new Set()); setReviewQueue([]); }} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
           <RefreshCw size={12} /> Reset session
         </button>
       </div>

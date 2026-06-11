@@ -1,8 +1,4 @@
-/**
- * src/services/progressService.ts
- * Quản lý tiến trình học tập của user (lesson, quiz, flashcard)
- */
-
+// src/services/progressService.ts
 import { db } from "../utils/config";
 import {
   collection,
@@ -17,13 +13,17 @@ import {
   Timestamp,
   writeBatch,
   increment,
+  runTransaction,
+  deleteField,
 } from "firebase/firestore";
 
 import { updateUserStreak } from "./streakService";
 import { getActiveEvent } from "./eventService";
+import type { ResumeData } from "../types/progress";
+import { checkAndGenerateCertificate } from "./certificateService";
+import { checkAndUnlockAchievements } from "./achievementService"; // ✅ thêm
 
 // ============ TYPES ============
-
 export interface LessonProgress {
   id: string;
   userId: string;
@@ -54,7 +54,6 @@ export interface FlashcardProgress {
 }
 
 // ============ QUIZ PROGRESS ============
-
 export async function saveQuizAttempt(
   userId: string,
   courseId: string,
@@ -65,40 +64,42 @@ export async function saveQuizAttempt(
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
 
-  const existing = await getDoc(progressRef);
-  const existingData = existing.exists() ? existing.data() : null;
-  const prevAttempts: QuizAttempt[] = existingData?.quizAttempts || [];
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(progressRef);
+    const existingData = existing.exists() ? existing.data() : null;
+    const prevAttempts: QuizAttempt[] = existingData?.quizAttempts || [];
 
-  const updatedAttempts = [...prevAttempts, attempt];
-  const bestScore = Math.max(
-    ...updatedAttempts.map((a) => a.score),
-    existingData?.quizScore || 0
-  );
+    const updatedAttempts = [...prevAttempts, attempt];
+    const bestScore = Math.max(
+      ...updatedAttempts.map((a) => a.score),
+      existingData?.quizScore || 0
+    );
 
-  const updateData: any = {
-    userId,
-    courseId,
-    moduleId,
-    lessonId,
-    lessonType: "quiz",
-    quizScore: bestScore,
-    quizAttempts: updatedAttempts,
-    status: "completed",
-    lastActivityAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+    const updateData: any = {
+      userId,
+      courseId,
+      moduleId,
+      lessonId,
+      lessonType: "quiz",
+      quizScore: bestScore,
+      quizAttempts: updatedAttempts,
+      status: "completed",
+      lastActivityAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
 
-  if (!existing.exists()) {
-    updateData.createdAt = serverTimestamp();
-    updateData.startedAt = serverTimestamp();
-    updateData.completedAt = serverTimestamp();
-  } else {
-    if (existingData?.status !== "completed") {
+    if (!existing.exists()) {
+      updateData.createdAt = serverTimestamp();
+      updateData.startedAt = serverTimestamp();
       updateData.completedAt = serverTimestamp();
+    } else {
+      if (existingData?.status !== "completed") {
+        updateData.completedAt = serverTimestamp();
+      }
     }
-  }
 
-  await setDoc(progressRef, updateData, { merge: true });
+    transaction.set(progressRef, updateData, { merge: true });
+  });
 }
 
 export async function getBestQuizScore(
@@ -116,7 +117,6 @@ export async function getBestQuizScore(
 }
 
 // ============ FLASHCARD PROGRESS ============
-
 export async function saveFlashcardProgress(
   userId: string,
   courseId: string,
@@ -183,8 +183,41 @@ export async function getFlashcardProgress(
   return null;
 }
 
-// ============ LESSON PROGRESS (GENERAL) ============
+// ============ RESUME DATA ============
+export async function saveResumeData(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string,
+  resumeData: ResumeData
+): Promise<void> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const progressRef = doc(db, "progress", progressId);
+  await setDoc(
+    progressRef,
+    {
+      resumeData,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
 
+export async function getResumeData(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string
+): Promise<ResumeData | null> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const docSnap = await getDoc(doc(db, "progress", progressId));
+  if (docSnap.exists()) {
+    return docSnap.data().resumeData || null;
+  }
+  return null;
+}
+
+// ============ LESSON COMPLETION (with certificate & achievements) ============
 export async function completeLesson(
   userId: string,
   courseId: string,
@@ -196,14 +229,15 @@ export async function completeLesson(
 
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
+  const userRef = doc(db, "users", userId);
 
-  const existing = await getDoc(progressRef);
-  if (existing.exists() && existing.data().status === "completed") {
+  // Quick check outside transaction to avoid unnecessary transaction
+  const existingSnap = await getDoc(progressRef);
+  if (existingSnap.exists() && existingSnap.data().status === "completed") {
     console.log(`[completeLesson] Lesson ${lessonId} already completed, skip.`);
     return;
   }
 
-  // Kiểm tra event active để nhân XP
   const activeEvent = await getActiveEvent();
   let finalXPReward = xpReward;
   if (activeEvent) {
@@ -211,45 +245,119 @@ export async function completeLesson(
     console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
   }
 
-  const updateData: any = {
-    userId,
-    courseId,
-    moduleId,
-    lessonId,
-    lessonType: "lesson",
-    status: "completed",
-    xpEarned: finalXPReward,
-    completedAt: serverTimestamp(),
-    lastActivityAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
+  await runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) {
+      throw new Error("User not found");
+    }
 
-  if (!existing.exists()) {
-    updateData.createdAt = serverTimestamp();
-    updateData.startedAt = serverTimestamp();
-  }
+    const progressSnap = await transaction.get(progressRef);
+    if (progressSnap.exists() && progressSnap.data().status === "completed") {
+      console.log(`[completeLesson] Lesson ${lessonId} already completed (tx), skip.`);
+      return;
+    }
 
-  // 1. Lưu progress
-  await setDoc(progressRef, updateData, { merge: true });
-  console.log(`[completeLesson] Progress saved for ${lessonId}`);
+    const updateData: any = {
+      userId,
+      courseId,
+      moduleId,
+      lessonId,
+      lessonType: "lesson",
+      status: "completed",
+      xpEarned: finalXPReward,
+      completedAt: serverTimestamp(),
+      lastActivityAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      resumeData: deleteField(),
+    };
+    if (!progressSnap.exists()) {
+      updateData.createdAt = serverTimestamp();
+      updateData.startedAt = serverTimestamp();
+    }
 
-  // 2. Cộng XP atomic (increment)
-  const userRef = doc(db, "users", userId);
-  try {
-    await updateDoc(userRef, {
+    transaction.set(progressRef, updateData, { merge: true });
+    transaction.update(userRef, {
       totalXP: increment(finalXPReward),
       updatedAt: serverTimestamp(),
     });
-    await updateUserStreak(userId);
-    console.log(`✅ XP added: +${finalXPReward} to user ${userId}`);
-  } catch (err) {
-    console.error("❌ Failed to update user XP:", err);
-    throw err;
+  });
+
+  // After transaction succeeds, update streak and log XP (non-critical)
+  await updateUserStreak(userId);
+  await addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId}`, "lesson_complete");
+  console.log(`[completeLesson] Success: +${finalXPReward} XP to user ${userId}`);
+
+  // ✅ KIỂM TRA VÀ SINH CHỨNG CHỈ
+  try {
+    const courseRef = doc(db, "courses", courseId);
+    const courseSnap = await getDoc(courseRef);
+    if (courseSnap.exists()) {
+      const courseData = courseSnap.data();
+      const modules = courseData.modules || [];
+      const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
+      const courseTitle = courseData.title || "Untitled";
+
+      const userSnap = await getDoc(userRef);
+      const userName = userSnap.exists()
+        ? (userSnap.data().displayName || userSnap.data().name || "User")
+        : "User";
+
+      await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
+    }
+  } catch (certErr) {
+    console.error("Failed to check/generate certificate:", certErr);
   }
 
-  // 3. Ghi log XP
-  await addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId}`, "lesson_complete");
-  console.log(`[completeLesson] XP log saved`);
+  // ✅ KIỂM TRA VÀ MỞ KHÓA THÀNH TỰU
+  try {
+    // Lấy thông tin user mới nhất
+    const userSnapAfter = await getDoc(userRef);
+    const userDataAfter = userSnapAfter.data() || {};
+
+    // Đếm số lesson đã hoàn thành
+    const completedLessonsQuery = query(
+      collection(db, "progress"),
+      where("userId", "==", userId),
+      where("status", "==", "completed")
+    );
+    const completedLessonsSnap = await getDocs(completedLessonsQuery);
+    const completedLessonsCount = completedLessonsSnap.size;
+
+    // Đếm số khóa học đã hoàn thành (tính sơ bộ)
+    const enrollQuery = query(
+      collection(db, "enrollments"),
+      where("userId", "==", userId),
+      where("isActive", "==", true)
+    );
+    const enrollSnap = await getDocs(enrollQuery);
+    const courseIds = enrollSnap.docs.map(d => d.data().courseId);
+    let completedCoursesCount = 0;
+    for (const cid of courseIds) {
+      const progressCount = await getDocs(query(
+        collection(db, "progress"),
+        where("userId", "==", userId),
+        where("courseId", "==", cid),
+        where("status", "==", "completed")
+      ));
+      // Lấy tổng số lesson của course (có thể cache nhưng tạm thế)
+      const courseDoc = await getDoc(doc(db, "courses", cid));
+      const total = courseDoc.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
+      if (progressCount.size === total && total > 0) completedCoursesCount++;
+    }
+
+    const eventData = {
+      totalXP: userDataAfter.totalXP || 0,
+      completedLessons: completedLessonsCount,
+      currentStreak: userDataAfter.currentStreak || 0,
+      completedCourses: completedCoursesCount,
+    };
+    await checkAndUnlockAchievements(userId, "lessons_completed", eventData.completedLessons, eventData);
+    await checkAndUnlockAchievements(userId, "total_xp", eventData.totalXP, eventData);
+    await checkAndUnlockAchievements(userId, "streak_days", eventData.currentStreak, eventData);
+    await checkAndUnlockAchievements(userId, "courses_completed", eventData.completedCourses, eventData);
+  } catch (achErr) {
+    console.error("Failed to check achievements:", achErr);
+  }
 }
 
 export async function isLessonCompleted(
@@ -280,7 +388,6 @@ export async function getCourseProgress(
 }
 
 // ============ BATCH UPDATE ============
-
 export async function batchUpdateProgress(
   updates: Array<{
     userId: string;
@@ -303,6 +410,7 @@ export async function batchUpdateProgress(
     if (update.status === "completed") {
       updateData.completedAt = serverTimestamp();
       if (update.xpReward) updateData.xpEarned = update.xpReward;
+      updateData.resumeData = deleteField();
     }
     batch.set(ref, updateData, { merge: true });
   }
@@ -310,12 +418,11 @@ export async function batchUpdateProgress(
 }
 
 // ============ XP LOGS ============
-
 export async function addXPLog(
   userId: string,
   amount: number,
   reason: string,
-  activityType: "lesson_complete" | "quiz_complete" | "admin_adjustment" | "refund",
+  activityType: "lesson_complete" | "quiz_complete" | "admin_adjustment" | "refund" | "achievement",
   adminNote?: string
 ): Promise<void> {
   await setDoc(doc(collection(db, "xp_logs")), {

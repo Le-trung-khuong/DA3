@@ -1,8 +1,9 @@
 // src/components/player/ReadingLesson.tsx
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { LessonCompleteButton } from './LessonCompleteButton';
+import { saveResumeData, getResumeData } from '../../services/progressService';
 import { Menu, BookOpen, Clock, Lightbulb, AlertTriangle, Info, Bookmark, Target } from 'lucide-react';
 
 interface ReadingLessonProps {
@@ -90,14 +91,51 @@ export function ReadingLesson({
 
   const enhancedContent = useMemo(() => enhanceContentForCards(content), [content]);
 
+  // Extract headings and reading time
   useEffect(() => {
     setHeadings(extractHeadings(content));
     setReadingTime(estimateReadingTime(content));
   }, [content]);
 
+  // Load resume data
+  useEffect(() => {
+    const loadResume = async () => {
+      if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+      const data = await getResumeData(userId, courseId, moduleId, lessonId);
+      if (data?.readingScrollPercent !== undefined && !isCompleted) {
+        setTimeout(() => {
+          const element = contentRef.current;
+          if (element) {
+            const totalScroll = element.clientHeight + element.offsetTop - window.innerHeight;
+            if (totalScroll > 0) {
+              window.scrollTo({ top: totalScroll * (data.readingScrollPercent! / 100), behavior: "auto" });
+            }
+          }
+        }, 100);
+      }
+    };
+    loadResume();
+  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+
+  // Auto-save resume data (debounced)
+  const saveScrollPercent = useCallback(async () => {
+    if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+    await saveResumeData(userId, courseId, moduleId, lessonId, {
+      readingScrollPercent: readProgress,
+    });
+  }, [userId, courseId, moduleId, lessonId, isCompleted, readProgress]);
+
+  useEffect(() => {
+    const debounce = setTimeout(() => {
+      saveScrollPercent();
+    }, 2000);
+    return () => clearTimeout(debounce);
+  }, [readProgress, saveScrollPercent]);
+
+  // Scroll handler to update readProgress
   useEffect(() => {
     const handleScroll = () => {
-      if (!contentRef.current) return;
+      if (!contentRef.current || isCompleted) return;
       const element = contentRef.current;
       const scrollTop = window.scrollY;
       const offsetTop = element.offsetTop;
@@ -111,8 +149,9 @@ export function ReadingLesson({
     window.addEventListener('scroll', handleScroll);
     handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [isCompleted]);
 
+  // Intersection observer for active heading
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -131,7 +170,7 @@ export function ReadingLesson({
 
   const canComplete = readProgress >= 80 && !isCompleted;
 
-  // Components for ReactMarkdown (using any to bypass strict children requirement)
+  // Markdown components (giữ nguyên)
   const markdownComponents = {
     h1: ({ children }: any) => {
       const text = children?.toString() || '';
