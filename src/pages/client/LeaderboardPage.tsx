@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { useCollection } from "../../hooks/useFirestore";
 import { orderBy, limit } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
-import { Trophy, Zap, Flame, Medal, Search } from "lucide-react";
+import { Trophy, Zap, Flame, Search, Loader } from "lucide-react";
 
 interface LeaderboardUser {
   uid: string;
@@ -34,7 +34,6 @@ export default function LeaderboardPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"xp" | "streak">("xp");
 
-  // Lấy top 100 users theo totalXP (real-time)
   const {
     data: usersData,
     loading,
@@ -72,16 +71,21 @@ export default function LeaderboardPage() {
     return idx !== -1 ? idx + 1 : null;
   }, [filtered, currentUserId]);
 
-  if (loading)
+  if (loading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
-        Loading leaderboard...
+        <Loader size={36} color="#6C63FF" style={{ animation: "spin 1s linear infinite" }} />
       </div>
     );
+  }
   if (error) return <div style={{ padding: 24, color: "#ffb4ab" }}>Error: {error.message}</div>;
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, color: "#E4E1EE", display: "flex", alignItems: "center", gap: 8 }}>
@@ -121,7 +125,6 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* Search */}
       <div style={{ position: "relative", marginBottom: 24 }}>
         <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#C7C4D8" }} />
         <input
@@ -139,12 +142,10 @@ export default function LeaderboardPage() {
         />
       </div>
 
-      {/* Leaderboard list */}
       <div style={{ background: "rgba(26,26,46,0.6)", borderRadius: 24, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden" }}>
         {filtered.map((user, idx) => {
           const rank = idx + 1;
           let medalEmoji = "";
-          let medalBg = "";
           if (rank === 1) medalEmoji = "🥇";
           else if (rank === 2) medalEmoji = "🥈";
           else if (rank === 3) medalEmoji = "🥉";
@@ -159,8 +160,9 @@ export default function LeaderboardPage() {
                 gap: 16,
                 padding: "14px 20px",
                 borderBottom: "1px solid rgba(255,255,255,0.05)",
-                background: isCurrentUser ? "rgba(108,99,255,0.1)" : "transparent",
+                background: isCurrentUser ? "rgba(108,99,255,0.15)" : "transparent",
                 transition: "background 0.2s",
+                borderLeft: isCurrentUser ? "3px solid #6C63FF" : "none",
               }}
             >
               <div style={{ width: 50, textAlign: "center", fontWeight: 700, fontSize: 18 }}>

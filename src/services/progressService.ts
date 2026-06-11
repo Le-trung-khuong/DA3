@@ -20,6 +20,7 @@ import {
 } from "firebase/firestore";
 
 import { updateUserStreak } from "./streakService";
+import { getActiveEvent } from "./eventService";
 
 // ============ TYPES ============
 
@@ -54,9 +55,6 @@ export interface FlashcardProgress {
 
 // ============ QUIZ PROGRESS ============
 
-/**
- * Lưu hoặc cập nhật kết quả quiz của user
- */
 export async function saveQuizAttempt(
   userId: string,
   courseId: string,
@@ -103,9 +101,6 @@ export async function saveQuizAttempt(
   await setDoc(progressRef, updateData, { merge: true });
 }
 
-/**
- * Lấy điểm quiz tốt nhất của user cho một lesson
- */
 export async function getBestQuizScore(
   userId: string,
   courseId: string,
@@ -122,9 +117,6 @@ export async function getBestQuizScore(
 
 // ============ FLASHCARD PROGRESS ============
 
-/**
- * Lưu tiến trình học flashcard
- */
 export async function saveFlashcardProgress(
   userId: string,
   courseId: string,
@@ -167,9 +159,6 @@ export async function saveFlashcardProgress(
   await setDoc(progressRef, updateData, { merge: true });
 }
 
-/**
- * Lấy tiến trình flashcard
- */
 export async function getFlashcardProgress(
   userId: string,
   courseId: string,
@@ -196,10 +185,6 @@ export async function getFlashcardProgress(
 
 // ============ LESSON PROGRESS (GENERAL) ============
 
-/**
- * Đánh dấu bài học (video, reading) đã hoàn thành và cộng XP
- * 🔍 Log chi tiết để debug
- */
 export async function completeLesson(
   userId: string,
   courseId: string,
@@ -218,6 +203,14 @@ export async function completeLesson(
     return;
   }
 
+  // Kiểm tra event active để nhân XP
+  const activeEvent = await getActiveEvent();
+  let finalXPReward = xpReward;
+  if (activeEvent) {
+    finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
+    console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
+  }
+
   const updateData: any = {
     userId,
     courseId,
@@ -225,7 +218,7 @@ export async function completeLesson(
     lessonId,
     lessonType: "lesson",
     status: "completed",
-    xpEarned: xpReward,
+    xpEarned: finalXPReward,
     completedAt: serverTimestamp(),
     lastActivityAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -244,24 +237,21 @@ export async function completeLesson(
   const userRef = doc(db, "users", userId);
   try {
     await updateDoc(userRef, {
-      totalXP: increment(xpReward),
+      totalXP: increment(finalXPReward),
       updatedAt: serverTimestamp(),
     });
     await updateUserStreak(userId);
-    console.log(`✅ XP added: +${xpReward} to user ${userId}`);
+    console.log(`✅ XP added: +${finalXPReward} to user ${userId}`);
   } catch (err) {
     console.error("❌ Failed to update user XP:", err);
     throw err;
   }
 
   // 3. Ghi log XP
-  await addXPLog(userId, xpReward, `Completed lesson: ${lessonId}`, "lesson_complete");
+  await addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId}`, "lesson_complete");
   console.log(`[completeLesson] XP log saved`);
 }
 
-/**
- * Lấy tiến trình của một lesson (kiểm tra đã hoàn thành chưa)
- */
 export async function isLessonCompleted(
   userId: string,
   courseId: string,
@@ -273,9 +263,6 @@ export async function isLessonCompleted(
   return docSnap.exists() && docSnap.data().status === "completed";
 }
 
-/**
- * Lấy tất cả progress của user trong một khóa học
- */
 export async function getCourseProgress(
   userId: string,
   courseId: string
@@ -294,9 +281,6 @@ export async function getCourseProgress(
 
 // ============ BATCH UPDATE ============
 
-/**
- * Cập nhật nhiều progress cùng lúc (dùng batch)
- */
 export async function batchUpdateProgress(
   updates: Array<{
     userId: string;
@@ -327,9 +311,6 @@ export async function batchUpdateProgress(
 
 // ============ XP LOGS ============
 
-/**
- * Ghi log thay đổi XP (dùng cho admin hoặc tự động)
- */
 export async function addXPLog(
   userId: string,
   amount: number,

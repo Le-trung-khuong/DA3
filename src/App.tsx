@@ -14,6 +14,7 @@ import LeaderboardAdmin from "./pages/admin/leaderboard/LeaderboardAdmin";
 import NotificationAdmin from "./pages/admin/notifications/NotificationAdmin";
 import CommunityAdmin from "./pages/admin/community/CommunityAdmin";
 import DashboardAdmin from "./pages/admin/dashboard/DashboardAdmin";
+import EventManager from "./pages/admin/events/EventManager"; // ✅ thêm
 
 // Client pages
 import LayoutClient from "./layout/LayoutClient";
@@ -27,7 +28,6 @@ import ChatRoom from "./pages/client/ChatRoom";
 import ProfilePage from "./pages/client/ProfilePage";
 import LeaderboardPage from "./pages/client/LeaderboardPage";
 
-// Placeholder cho các trang admin chưa có
 const PlaceholderPage = ({ title }: { title: string }) => (
   <div style={{ padding: 40, textAlign: "center" }}>
     <h2 style={{ color: "#e3dfff" }}>{title}</h2>
@@ -40,7 +40,6 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Admin Login */}
           <Route path="/admin/login" element={<Login />} />
 
           {/* Client routes */}
@@ -64,34 +63,22 @@ function App() {
             <Route path="admin/revenue" element={<PlaceholderPage title="Revenue" />} />
             <Route path="admin/settings" element={<PlaceholderPage title="Settings" />} />
 
-            {/* Users */}
             <Route path="admin/users" element={<UserListAdmin />} />
             <Route path="admin/users/:userId" element={<UserDetailAdmin />} />
 
-            {/* Courses */}
             <Route path="admin/courses" element={<CourseListAdmin />} />
             <Route path="admin/courses/:courseId" element={<CourseDetailAdmin />} />
             <Route path="admin/courses/new" element={<CourseFormAdmin />} />
             <Route path="admin/courses/:courseId/edit" element={<CourseFormAdmin />} />
 
-            {/* Reviews */}
             <Route path="admin/reviews" element={<ReviewListAdmin />} />
-
-            {/* Dashboard */}
             <Route path="/admin/dashboard" element={<DashboardAdmin />} />
-
-            {/* Transactions */}
             <Route path="admin/transactions" element={<TransactionListAdmin />} />
-
-            {/* Leaderboard */}
             <Route path="admin/leaderboard" element={<LeaderboardAdmin />} />
-
-            {/* Notifications */}
             <Route path="admin/notifications" element={<NotificationAdmin />} />
-
-            {/* Community */}
             <Route path="admin/community" element={<CommunityAdmin />} />
             <Route path="admin/reports" element={<CommunityAdmin />} />
+            <Route path="admin/events" element={<EventManager />} /> {/* ✅ thêm */}
           </Route>
         </Routes>
       </BrowserRouter>

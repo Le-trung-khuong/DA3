@@ -41,7 +41,7 @@ import {
   LayoutDashboard, BookOpen, Users, MessageSquare, BarChart2,
   Settings, LogOut, Bell, Search, ChevronRight, Menu, X,
   Shield, AlertTriangle, Loader, RefreshCw, Home,
-  TrendingUp, Flag, Zap, Hash, CreditCard, Star,
+  Flag, Zap, Hash, CreditCard, Star,
   ChevronDown, ExternalLink, Activity, Lock, Radio,
   Info, ShieldOff, Trophy,
 } from "lucide-react";
@@ -66,7 +66,8 @@ interface NavItem {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NAV CONFIG
+// NAV CONFIG – Đã loại bỏ Analytics và Revenue (gộp vào Dashboard)
+// Đã thêm XP Events
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const NAV_ITEMS: NavItem[] = [
@@ -75,8 +76,6 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── CONTENT ─────────────────────────────────────────────────────────────────
   { section: "Content",     label: "Courses",      path: "/admin/courses",      Icon: BookOpen,    roles: ["admin","moderator","instructor"] },
-  {                         label: "Analytics",    path: "/admin/analytics",    Icon: BarChart2,   roles: ["admin"] },
-  {                         label: "Revenue",      path: "/admin/revenue",      Icon: TrendingUp,  roles: ["admin"] },
   {                         label: "Transactions", path: "/admin/transactions", Icon: CreditCard,  roles: ["admin"] },
 
   // ── USERS ───────────────────────────────────────────────────────────────────
@@ -89,7 +88,8 @@ const NAV_ITEMS: NavItem[] = [
   {                         label: "Reports",      path: "/admin/reports",      Icon: Flag,        badge: 7, badgeColor: "#ffb4ab", roles: ["admin","moderator"] },
 
   // ── SYSTEM ──────────────────────────────────────────────────────────────────
-  { section: "System",      label: "Settings",     path: "/admin/settings",     Icon: Settings,    roles: ["admin"] },
+  { section: "System",      label: "XP Events",    path: "/admin/events",       Icon: Zap,         roles: ["admin"] }, // ✅ Đã thêm
+  {                         label: "Settings",     path: "/admin/settings",     Icon: Settings,    roles: ["admin"] },
   {                         label: "Notifications",path: "/admin/notifications",Icon: Bell,        roles: ["admin"] },
 ];
 
@@ -330,7 +330,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TopBar (giữ nguyên, đã có responsive)
+// TopBar (giữ nguyên)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TopBarProps {
@@ -624,9 +624,7 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
     const handleResize = () => {
       if (window.innerWidth >= 1024) {
         setMobileOpen(false);
-        // Desktop: collapsed có thể tự do
       } else {
-        // Mobile: collapse luôn để icon nhỏ, nhưng drawer vẫn ẩn
         setCollapsed(true);
       }
     };
@@ -637,7 +635,6 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
 
   const sidebarWidth = collapsed ? 68 : 240;
 
-  // Toggle menu: nếu mobile thì mở drawer, nếu desktop thì collapsed
   const handleToggle = () => {
     if (window.innerWidth < 1024) {
       setMobileOpen(prev => !prev);
