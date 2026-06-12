@@ -5,9 +5,16 @@
 
 import { Timestamp } from "firebase/firestore";
 
-export type NotificationType = "payment_success" | "payment_failed" | "refund" | "admin_warning" | "system"| "course_enrolled"        // ✅ thêm
+export type NotificationType =
+  | "payment_success"
+  | "payment_failed"
+  | "refund"
+  | "admin_warning"
+  | "system"
+  | "course_enrolled"
   | "admin_announcement"
-  | "community_message";
+  | "community_message"
+  | "achievement_unlocked"; // ✅ thêm
 
 export interface Notification {
   id: string;
@@ -22,5 +29,10 @@ export interface Notification {
     transactionId?: string;
     courseId?: string;
     warningCount?: number;
+    // ✅ thêm cho achievement
+    achievementId?: string;
+    reward?: number;
+    claimable?: boolean;
+    claimed?: boolean;
   };
 }

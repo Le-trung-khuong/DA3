@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { Bell, Check, CheckCheck, X, MessageSquare, DollarSign, AlertTriangle, Info, Star, Users } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../hooks/useNotifications";
+import { claimAchievement } from "../../services/achievementService";
 import type { Notification } from "../../types/notification";
 
 const getNotificationIcon = (type: string) => {
@@ -24,6 +25,8 @@ const getNotificationIcon = (type: string) => {
       return <MessageSquare size={14} color="#6C63FF" />;
     case "admin_announcement":
       return <Users size={14} color="#c4c0ff" />;
+    case "achievement_unlocked":
+      return <Star size={14} color="#FFD700" />;
     default:
       return <Info size={14} color="#C7C4D8" />;
   }
@@ -43,18 +46,17 @@ const formatTimeAgo = (timestamp: any): string => {
 };
 
 interface NotificationBellProps {
-  /** Đường dẫn đến trang notifications (mặc định: "/notifications") */
   notificationsPath?: string;
 }
 
 export default function NotificationBell({ notificationsPath = "/notifications" }: NotificationBellProps) {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(currentUser?.uid);
+  const { notifications, unreadCount, markAsRead, markAllAsRead, refresh } = useNotifications(currentUser?.uid);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -65,7 +67,6 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle notification click
   const handleNotificationClick = async (notification: Notification) => {
     if (!notification.isRead) {
       await markAsRead(notification.id);
@@ -76,12 +77,47 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
     }
   };
 
-  // Get recent notifications (latest 5)
+  const handleClaim = async (notification: Notification) => {
+    if (!currentUser) return;
+    const achievementId = notification.metadata?.achievementId;
+    if (!achievementId) return;
+
+    const result = await claimAchievement(currentUser.uid, achievementId);
+    if (result.success) {
+      setToast({ msg: `🎉 +${result.xpEarned} XP claimed!`, type: "success" });
+      await markAsRead(notification.id);
+      refresh(); // refresh notification list
+      setTimeout(() => setToast(null), 3000);
+    } else {
+      setToast({ msg: result.message || "Failed to claim", type: "error" });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
   const recentNotifications = notifications.slice(0, 5);
   const hasUnread = unreadCount > 0;
 
   return (
     <div style={{ position: "relative" }} ref={dropdownRef}>
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          zIndex: 10000,
+          background: toast.type === "success" ? "#45f1c5" : "#ffb4ab",
+          color: "#0F0F1A",
+          padding: "10px 18px",
+          borderRadius: 12,
+          fontSize: 13,
+          fontWeight: 700,
+          animation: "fadeInUp 0.2s ease",
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
       {/* Bell Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -153,7 +189,6 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
             animation: "notificationSlideDown 0.2s ease",
           }}
         >
-          {/* Header */}
           <div
             style={{
               display: "flex",
@@ -206,7 +241,6 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
             )}
           </div>
 
-          {/* Notifications List */}
           <div style={{ maxHeight: 400, overflowY: "auto" }}>
             {notifications.length === 0 ? (
               <div
@@ -225,126 +259,145 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
                 </p>
               </div>
             ) : (
-              recentNotifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  onClick={() => handleNotificationClick(notification)}
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    padding: "12px 16px",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
-                    cursor: "pointer",
-                    transition: "background 0.15s",
-                    background: notification.isRead ? "transparent" : "rgba(108,99,255,0.05)",
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.background = notification.isRead
-                      ? "transparent"
-                      : "rgba(108,99,255,0.05)";
-                  }}
-                >
-                  {/* Icon */}
+              recentNotifications.map((notification) => {
+                const isAchievementUnlocked = notification.type === "achievement_unlocked";
+                const canClaim = isAchievementUnlocked && !notification.metadata?.claimed;
+                return (
                   <div
+                    key={notification.id}
+                    onClick={() => !canClaim && handleNotificationClick(notification)}
                     style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      background: "rgba(108,99,255,0.1)",
                       display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
+                      gap: 12,
+                      padding: "12px 16px",
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      cursor: canClaim ? "default" : "pointer",
+                      transition: "background 0.15s",
+                      background: notification.isRead ? "transparent" : "rgba(108,99,255,0.05)",
+                    }}
+                    onMouseOver={(e) => {
+                      if (!canClaim) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = notification.isRead ? "transparent" : "rgba(108,99,255,0.05)";
                     }}
                   >
-                    {getNotificationIcon(notification.type)}
-                  </div>
-
-                  {/* Content */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: "#E4E1EE",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {notification.title}
-                      </span>
-                      {!notification.isRead && (
-                        <span
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            background: "#6C63FF",
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                    </div>
-                    <p
+                    <div
                       style={{
-                        fontSize: 12,
-                        color: "#C7C4D8",
-                        lineHeight: 1.5,
-                        overflow: "hidden",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                      }}
-                    >
-                      {notification.body}
-                    </p>
-                    <span style={{ fontSize: 10, color: "#47464f", marginTop: 4, display: "block" }}>
-                      {formatTimeAgo(notification.createdAt)}
-                    </span>
-                  </div>
-
-                  {/* Mark as read button (hover) */}
-                  {!notification.isRead && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        markAsRead(notification.id);
-                      }}
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 8,
-                        background: "rgba(255,255,255,0.05)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        cursor: "pointer",
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: "rgba(108,99,255,0.1)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        color: "#C7C4D8",
                         flexShrink: 0,
-                        transition: "all 0.15s",
-                      }}
-                      onMouseOver={(e) => {
-                        e.currentTarget.style.background = "rgba(108,99,255,0.15)";
-                        e.currentTarget.style.color = "#c4c0ff";
-                      }}
-                      onMouseOut={(e) => {
-                        e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-                        e.currentTarget.style.color = "#C7C4D8";
                       }}
                     >
-                      <Check size={12} />
-                    </button>
-                  )}
-                </div>
-              ))
+                      {getNotificationIcon(notification.type)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: "#E4E1EE",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {notification.title}
+                        </span>
+                        {!notification.isRead && !canClaim && (
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: "#6C63FF",
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                      </div>
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: "#C7C4D8",
+                          lineHeight: 1.5,
+                          overflow: "hidden",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                        }}
+                      >
+                        {notification.body}
+                      </p>
+                      <span style={{ fontSize: 10, color: "#47464f", marginTop: 4, display: "block" }}>
+                        {formatTimeAgo(notification.createdAt)}
+                      </span>
+                      {canClaim && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClaim(notification);
+                          }}
+                          style={{
+                            marginTop: 8,
+                            padding: "4px 12px",
+                            borderRadius: 20,
+                            background: "linear-gradient(135deg,#45f1c5,#00D4AA)",
+                            border: "none",
+                            color: "#0F0F1A",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Claim Reward
+                        </button>
+                      )}
+                    </div>
+                    {!notification.isRead && !canClaim && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsRead(notification.id);
+                        }}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 8,
+                          background: "rgba(255,255,255,0.05)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#C7C4D8",
+                          flexShrink: 0,
+                          transition: "all 0.15s",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = "rgba(108,99,255,0.15)";
+                          e.currentTarget.style.color = "#c4c0ff";
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+                          e.currentTarget.style.color = "#C7C4D8";
+                        }}
+                      >
+                        <Check size={12} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
 
-          {/* Footer */}
           <div
             style={{
               padding: "10px 16px",
@@ -378,17 +431,14 @@ export default function NotificationBell({ notificationsPath = "/notifications" 
         </div>
       )}
 
-      {/* Animation styles */}
       <style>{`
         @keyframes notificationSlideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </div>

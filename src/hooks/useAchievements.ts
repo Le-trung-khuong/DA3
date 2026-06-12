@@ -4,7 +4,11 @@ import { getUserAchievements, getAchievementDefinitions, AchievementDef, UserAch
 
 interface AchievementWithStatus extends AchievementDef {
   unlockedAt?: Date;
+  claimedAt?: Date | null;
+  progress?: number;
   isUnlocked: boolean;
+  isClaimed: boolean;
+  status: "locked" | "unlocked" | "claimed";
 }
 
 export function useAchievements(userId: string | undefined) {
@@ -12,31 +16,48 @@ export function useAchievements(userId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
+  const fetchData = async () => {
     if (!userId) {
       setAchievements([]);
       setLoading(false);
       return;
     }
-
-    Promise.all([getAchievementDefinitions(), getUserAchievements(userId)])
-      .then(([defs, userAchievements]) => {
-        const map = new Map<string, UserAchievement>();
-        userAchievements.forEach(ua => map.set(ua.achievementId, ua));
-        const merged = defs.map(def => ({
+    try {
+      const [defs, userAchs] = await Promise.all([
+        getAchievementDefinitions(),
+        getUserAchievements(userId),
+      ]);
+      const map = new Map<string, UserAchievement>();
+      userAchs.forEach(ua => map.set(ua.achievementId, ua));
+      const merged = defs.map(def => {
+        const ua = map.get(def.id);
+        const isUnlocked = !!ua;
+        const isClaimed = isUnlocked && ua?.claimedAt !== null;
+        let status: "locked" | "unlocked" | "claimed" = "locked";
+        if (isClaimed) status = "claimed";
+        else if (isUnlocked) status = "unlocked";
+        return {
           ...def,
-          unlockedAt: map.get(def.id)?.unlockedAt,
-          isUnlocked: map.has(def.id),
-        }));
-        setAchievements(merged);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("useAchievements error:", err);
-        setError(err);
-        setLoading(false);
+          unlockedAt: ua?.unlockedAt,
+          claimedAt: ua?.claimedAt,
+          progress: ua?.progress,
+          isUnlocked,
+          isClaimed,
+          status,
+        };
       });
+      setAchievements(merged);
+    } catch (err) {
+      console.error("useAchievements error:", err);
+      setError(err as Error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
   }, [userId]);
 
-  return { achievements, loading, error };
+  return { achievements, loading, error, refetch: fetchData };
 }
