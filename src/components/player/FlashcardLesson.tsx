@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight, RotateCw, CheckCircle, RefreshCw, BarChart2 } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveFlashcardProgress, saveResumeData, getResumeData } from "../../services/progressService";
+import { useSRS } from "../../hooks/useSRS";
 
 interface FlashcardCard {
   id: string;
@@ -37,7 +38,13 @@ export function FlashcardLesson({
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const [stats, setStats] = useState({ totalReviewed: 0, correct: 0 });
 
-  // Load saved mastered from progress (existing)
+  // SRS
+  const { cards: srsCards, submitReview, initCard, refresh: refreshSRS } = useSRS(userId);
+  const [showSRS, setShowSRS] = useState(false);
+  const [currentSRSIndex, setCurrentSRSIndex] = useState(0);
+  const [srsFlipped, setSrsFlipped] = useState(false);
+
+  // Load saved mastered from progress
   useEffect(() => {
     if (savedProgress?.rememberedCards) {
       const masteredIds = cards.slice(0, savedProgress.rememberedCards).map(c => c.id);
@@ -45,7 +52,7 @@ export function FlashcardLesson({
     }
   }, [savedProgress, cards]);
 
-  // Load resume data (currentIndex + reviewQueue)
+  // Load resume data
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
@@ -58,7 +65,7 @@ export function FlashcardLesson({
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompleted]);
 
-  // Auto-save resume data when index or queue changes
+  // Auto-save resume data
   useEffect(() => {
     if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
     const timeout = setTimeout(() => {
@@ -75,7 +82,7 @@ export function FlashcardLesson({
   const masteredCount = mastered.size;
   const allMastered = masteredCount === totalCards;
 
-  // Auto-save flashcard progress (existing)
+  // Auto-save flashcard progress
   useEffect(() => {
     const save = async () => {
       const flashcardProgress = {
@@ -93,6 +100,13 @@ export function FlashcardLesson({
     };
     save();
   }, [mastered, currentIndex, cards, userId, courseId, moduleId, lessonId]);
+
+  // Khi tất cả card mastered, khởi tạo SRS
+  useEffect(() => {
+    if (allMastered && !isCompleted) {
+      cards.forEach(card => initCard(card.id));
+    }
+  }, [allMastered, cards, initCard, isCompleted]);
 
   const handleFlip = () => setFlipped(!flipped);
 
@@ -140,6 +154,48 @@ export function FlashcardLesson({
     return () => window.removeEventListener("keydown", handleKey);
   }, [currentIndex, flipped]);
 
+  // Helper render SRS modal
+  const renderSRSModal = () => {
+    if (!showSRS) return null;
+    const srsCard = srsCards[currentSRSIndex];
+    // Tìm thẻ flashcard tương ứng để lấy front/back
+    const flashCard = cards.find(c => c.id === srsCard?.cardId);
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: '#1a1a2e', borderRadius: 24, padding: 24, maxWidth: 500, width: '100%' }}>
+          <h3 style={{ color: '#E4E1EE', marginBottom: 16 }}>Ôn tập SRS</h3>
+          {srsCards.length === 0 ? (
+            <p style={{ color: '#C7C4D8' }}>Không có thẻ cần ôn hôm nay.</p>
+          ) : (
+            <>
+              <div style={{ padding: 16, background: '#0d0d18', borderRadius: 12, marginBottom: 16 }}>
+                {srsFlipped ? (
+                  <p style={{ color: '#E4E1EE' }}>{flashCard?.back || 'N/A'}</p>
+                ) : (
+                  <p style={{ color: '#E4E1EE' }}>{flashCard?.front || 'N/A'}</p>
+                )}
+              </div>
+              <button onClick={() => setSrsFlipped(!srsFlipped)} style={{ marginBottom: 16, background: '#6C63FF', border: 'none', padding: '4px 12px', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>Lật thẻ</button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                {[0, 1, 2, 3, 4, 5].map(q => (
+                  <button key={q} onClick={() => {
+                    submitReview(srsCards[currentSRSIndex].cardId, q);
+                    setSrsFlipped(false);
+                    setCurrentSRSIndex((i) => (i + 1) % srsCards.length);
+                  }} style={{ padding: '4px 12px', background: '#6C63FF', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <button onClick={() => setShowSRS(false)} style={{ marginTop: 16, background: 'none', border: 'none', color: '#C7C4D8', cursor: 'pointer' }}>Đóng</button>
+        </div>
+      </div>
+    );
+  };
+
   if (allMastered) {
     return (
       <div style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
@@ -156,6 +212,12 @@ export function FlashcardLesson({
           userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
           xpReward={xpReward} onComplete={onComplete} isCompleted={isCompleted}
         />
+        <div style={{ marginTop: 16 }}>
+          <button onClick={() => { setShowSRS(true); refreshSRS(); }} style={{ background: '#6C63FF', border: 'none', padding: '6px 16px', borderRadius: 20, color: '#fff', cursor: 'pointer' }}>
+            📚 Ôn tập SRS ({srsCards.length})
+          </button>
+        </div>
+        {renderSRSModal()}
       </div>
     );
   }
@@ -227,7 +289,13 @@ export function FlashcardLesson({
         <button onClick={() => { setMode("learn"); setCurrentIndex(0); setFlipped(false); setMastered(new Set()); setReviewQueue([]); }} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
           <RefreshCw size={12} /> Reset session
         </button>
+        <br />
+        <button onClick={() => { setShowSRS(true); refreshSRS(); }} style={{ marginTop: 8, background: '#6C63FF', border: 'none', padding: '6px 16px', borderRadius: 20, color: '#fff', cursor: 'pointer' }}>
+          📚 Ôn tập SRS ({srsCards.length})
+        </button>
       </div>
+
+      {renderSRSModal()}
     </div>
   );
 }

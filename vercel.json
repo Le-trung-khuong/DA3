@@ -1,5 +1,15 @@
 {
+  "version": 2,
+  "functions": {
+    "api/**/*.{js,ts}": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

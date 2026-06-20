@@ -11,6 +11,7 @@ import RevenueChart from "./components/RevenueChart";
 import TransactionStatusPie from "./components/TransactionStatusPie";
 import TopCoursesTable from "./components/TopCoursesTable";
 import UserStatsCards from "./components/UserStatsCards";
+import LearningHeatmap from "../../../components/admin/LearningHeatmap";
 
 export default function DashboardAdmin() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -133,6 +134,11 @@ export default function DashboardAdmin() {
           <div key={`user-stats-${refreshKey}`}>
             <UserStatsCards />
           </div>
+        </div>
+
+        {/* Row 3: Learning Heatmap */}
+        <div key={`heatmap-${refreshKey}`} style={{ marginBottom: 24 }}>
+          <LearningHeatmap />
         </div>
 
         {/* Footer note */}

@@ -27,6 +27,7 @@ import { createEnrollment } from "../../services/enrollmentService";
 import { createPayOSOrder } from "../../services/payosService";
 import PaymentModal from "./PaymentModal";
 import type { Review } from "../../types/review";
+import { useAIRecommendation } from "../../hooks/useAIRecommendation";
 import {
   Clock,
   BookOpen,
@@ -112,6 +113,12 @@ export default function CourseDetail() {
     courseId
   );
   const { progress, isLessonCompleted, getQuizScore } = useProgress(currentUser?.uid, courseId);
+
+  // AI Recommendation
+  const { lessonId: recommendedLessonId, reason, loading: recommendationLoading } = useAIRecommendation(
+    currentUser?.uid,
+    courseId
+  );
 
   // Lấy danh sách reviews realtime
   const {
@@ -202,8 +209,6 @@ export default function CourseDetail() {
 
   const handlePaymentSuccess = () => {
     setPaymentModalOpen(false);
-    // Realtime hook `useUserEnrollment` sẽ tự cập nhật isEnrolled
-    // Có thể reload để làm mới UI
     window.location.reload();
   };
 
@@ -384,6 +389,17 @@ export default function CourseDetail() {
           </div>
         </div>
       </div>
+
+      {/* AI Recommendation */}
+      {recommendedLessonId && !courseLoading && (
+        <div style={{ marginTop: 24, marginBottom: 24, padding: 16, background: 'rgba(108,99,255,0.1)', borderRadius: 12, border: '1px solid rgba(108,99,255,0.2)' }}>
+          <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#c4c0ff' }}>🎯 Gợi ý bài học tiếp theo</h4>
+          <p style={{ color: '#C7C4D8' }}>Lý do: {reason}</p>
+          <button onClick={() => navigate(`/learn/${courseId}/${recommendedLessonId}`)} style={{ marginTop: 8, padding: '6px 16px', borderRadius: 8, background: 'linear-gradient(135deg,#6C63FF,#9B59B6)', border: 'none', color: '#fff', cursor: 'pointer' }}>
+            Bắt đầu ngay
+          </button>
+        </div>
+      )}
 
       {/* Curriculum Section */}
       <div>

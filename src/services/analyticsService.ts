@@ -42,7 +42,7 @@ export interface TopCourse {
   id: string;
   title: string;
   price: number;
-  totalSold: number;      // from transactions success
+  totalSold: number;
   totalRevenue: number;
   totalEnrollments: number;
   rating: number;
@@ -62,6 +62,12 @@ export interface RevenuePoint {
   date: string; // YYYY-MM-DD
   revenue: number;
   count: number;
+}
+
+// ✅ Thêm cho Heatmap
+export interface HeatmapData {
+  date: string;
+  xp: number;
 }
 
 // ============ HELPERS ============
@@ -94,17 +100,17 @@ export async function getRevenueStats(): Promise<RevenueStats> {
   const monthStart = startOfMonth(now);
   const yearStart = startOfYear(now);
 
-  // Query all success transactions
-  const q = query(
-    collection(db, "transactions"),
-    where("status", "==", "success")
-  );
+  const q = query(collection(db, "transactions"), where("status", "==", "success"));
   const snapshot = await getDocs(q);
 
-  let todayRevenue = 0, todayCount = 0;
-  let monthlyRevenue = 0, monthlyCount = 0;
-  let yearlyRevenue = 0, yearlyCount = 0;
-  let totalRevenue = 0, totalCount = 0;
+  let todayRevenue = 0,
+    todayCount = 0;
+  let monthlyRevenue = 0,
+    monthlyCount = 0;
+  let yearlyRevenue = 0,
+    yearlyCount = 0;
+  let totalRevenue = 0,
+    totalCount = 0;
 
   snapshot.forEach((doc) => {
     const data = doc.data();
@@ -156,11 +162,7 @@ export async function getTransactionStats(): Promise<TransactionStats> {
 
 // ============ TOP COURSES ============
 export async function getTopCourses(limitCount = 10): Promise<TopCourse[]> {
-  // Get all success transactions and aggregate per course
-  const txQuery = query(
-    collection(db, "transactions"),
-    where("status", "==", "success")
-  );
+  const txQuery = query(collection(db, "transactions"), where("status", "==", "success"));
   const txSnap = await getDocs(txQuery);
   const courseMap = new Map<string, { sold: number; revenue: number }>();
 
@@ -175,14 +177,17 @@ export async function getTopCourses(limitCount = 10): Promise<TopCourse[]> {
     courseMap.set(courseId, existing);
   });
 
-  // Get course details
   const coursesSnap = await getDocs(collection(db, "courses"));
   const courseDetails = new Map();
   coursesSnap.forEach((doc) => {
-    courseDetails.set(doc.id, { title: doc.data().title, price: doc.data().price, rating: doc.data().rating || 0, ratingCount: doc.data().ratingCount || 0 });
+    courseDetails.set(doc.id, {
+      title: doc.data().title,
+      price: doc.data().price,
+      rating: doc.data().rating || 0,
+      ratingCount: doc.data().ratingCount || 0,
+    });
   });
 
-  // Get enrollments per course (for totalEnrollments)
   const enrollSnap = await getDocs(collection(db, "enrollments"));
   const enrollmentCount = new Map<string, number>();
   enrollSnap.forEach((doc) => {
@@ -205,18 +210,13 @@ export async function getTopCourses(limitCount = 10): Promise<TopCourse[]> {
       ratingCount: details.ratingCount || 0,
     });
   }
-  // Sort by revenue descending
   result.sort((a, b) => b.totalRevenue - a.totalRevenue);
   return result.slice(0, limitCount);
 }
 
 // ============ TOP USERS ============
 export async function getTopUsers(limitCount = 10): Promise<TopUser[]> {
-  // Aggregate from transactions success per user
-  const txQuery = query(
-    collection(db, "transactions"),
-    where("status", "==", "success")
-  );
+  const txQuery = query(collection(db, "transactions"), where("status", "==", "success"));
   const txSnap = await getDocs(txQuery);
   const userSpent = new Map<string, number>();
   const userCourses = new Map<string, Set<string>>();
@@ -234,7 +234,6 @@ export async function getTopUsers(limitCount = 10): Promise<TopUser[]> {
     }
   });
 
-  // Fetch user details
   const usersSnap = await getDocs(collection(db, "users"));
   const userMap = new Map();
   usersSnap.forEach((doc) => {
@@ -270,15 +269,10 @@ export async function getRevenueTrend(days = 30): Promise<RevenuePoint[]> {
   startDate.setHours(0, 0, 0, 0);
   const startTimestamp = Timestamp.fromDate(startDate);
 
-  const q = query(
-    collection(db, "transactions"),
-    where("status", "==", "success"),
-    where("createdAt", ">=", startTimestamp)
-  );
+  const q = query(collection(db, "transactions"), where("status", "==", "success"), where("createdAt", ">=", startTimestamp));
   const snapshot = await getDocs(q);
   const dailyMap = new Map<string, { revenue: number; count: number }>();
 
-  // Initialize last `days` days with zero
   for (let i = 0; i < days; i++) {
     const d = new Date(now);
     d.setDate(now.getDate() - i);
@@ -302,7 +296,6 @@ export async function getRevenueTrend(days = 30): Promise<RevenuePoint[]> {
     }
   });
 
-  // Convert to array and sort by date ascending
   const result = Array.from(dailyMap.entries()).map(([date, { revenue, count }]) => ({
     date,
     revenue,
@@ -316,7 +309,7 @@ export async function getRevenueTrend(days = 30): Promise<RevenuePoint[]> {
 export interface UserStats {
   totalUsers: number;
   newUsersLast30Days: number;
-  premiumUsers: number;   // users who spent > 0
+  premiumUsers: number;
   totalXPAll: number;
   avgXP: number;
 }
@@ -346,4 +339,33 @@ export async function getUserStats(): Promise<UserStats> {
     totalXPAll: totalXP,
     avgXP: totalUsers ? Math.round(totalXP / totalUsers) : 0,
   };
+}
+
+// ============ HEATMAP ============
+export async function fetchLearningHeatmapData(userId: string, days = 30): Promise<HeatmapData[]> {
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - days);
+  const q = query(
+    collection(db, "xp_logs"),
+    where("userId", "==", userId),
+    where("timestamp", ">=", Timestamp.fromDate(fromDate)),
+    orderBy("timestamp", "desc")
+  );
+  const snap = await getDocs(q);
+  const map: Record<string, number> = {};
+  snap.forEach((doc) => {
+    const data = doc.data();
+    const date = data.timestamp?.toDate?.() || new Date();
+    const key = date.toISOString().split("T")[0];
+    map[key] = (map[key] || 0) + data.amount;
+  });
+
+  const result: HeatmapData[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split("T")[0];
+    result.push({ date: key, xp: map[key] || 0 });
+  }
+  return result;
 }
