@@ -10,6 +10,7 @@
  *   - Hide/Unhide review (soft delete)
  *   - Delete review permanently (with confirm dialog)
  *   - Stats cards: total reviews, avg rating, visible/hidden counts
+ *   - Sort by reportCount (high to low)
  */
 
 "use client";
@@ -106,6 +107,7 @@ const ReviewDetailModal = ({ review, onClose }: { review: Review; onClose: () =>
           ["Rating", `${review.rating} / 5`],
           ["Content", review.content],
           ["Status", review.status],
+          ["Report Count", review.reportCount ?? 0],
           ["Helpful", `${review.helpfulCount} lượt`],
           ["Created", fmtDate(review.createdAt)],
           ["Updated", fmtDate(review.updatedAt)],
@@ -131,6 +133,8 @@ export default function ReviewListAdmin() {
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState<number | "all">("all");
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | "all">("all");
+  const [sortBy, setSortBy] = useState<'reportCount' | 'createdAt'>('reportCount');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<Review | null>(null);
   const [viewTarget, setViewTarget] = useState<Review | null>(null);
@@ -181,7 +185,7 @@ export default function ReviewListAdmin() {
     return () => unsub();
   }, []);
 
-  // ========== FILTERS & PAGINATION ==========
+  // ========== FILTERS & SORT ==========
   const filtered = useMemo(() => {
     let data = [...reviews];
     const q = search.toLowerCase();
@@ -194,8 +198,15 @@ export default function ReviewListAdmin() {
     if (statusFilter !== "all") {
       data = data.filter(r => r.status === statusFilter);
     }
+    // Sắp xếp
+    if (sortBy === 'reportCount') {
+      data.sort((a, b) => (b.reportCount || 0) - (a.reportCount || 0));
+    } else {
+      data.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    }
+    if (sortOrder === 'asc') data.reverse();
     return data;
-  }, [reviews, search, ratingFilter, statusFilter]);
+  }, [reviews, search, ratingFilter, statusFilter, sortBy, sortOrder]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -238,7 +249,7 @@ export default function ReviewListAdmin() {
   // ========== RESET PAGE WHEN FILTERS CHANGE ==========
   useEffect(() => {
     setPage(1);
-  }, [search, ratingFilter, statusFilter]);
+  }, [search, ratingFilter, statusFilter, sortBy, sortOrder]);
 
   if (loading) return <div style={{ display: "flex", justifyContent: "center", padding: 40 }}><Loader size={32} style={{ animation: "spin 1s linear infinite" }} /> Loading reviews...</div>;
   if (error) return <div style={{ textAlign: "center", padding: 40, color: "#ffb4ab" }}>Error: {error}</div>;
@@ -304,6 +315,21 @@ export default function ReviewListAdmin() {
           <option value="reported">Reported</option>
         </select>
 
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}
+        >
+          <option value="reportCount">Sort by Reports</option>
+          <option value="createdAt">Sort by Date</option>
+        </select>
+        <button
+          onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')}
+          style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}
+        >
+          {sortOrder === 'desc' ? '↓' : '↑'}
+        </button>
+
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#C7C4D8" }}>{filtered.length} reviews</span>
       </div>
 
@@ -318,6 +344,7 @@ export default function ReviewListAdmin() {
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Rating</th>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Review Content</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Status</th>
+                <th style={{ padding: "12px 16px", textAlign: "center" }}>Reports</th>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Created</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Actions</th>
               </tr>
@@ -363,6 +390,9 @@ export default function ReviewListAdmin() {
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 999, background: statusCfg.bg, border: `1px solid ${statusCfg.border}`, color: statusCfg.color, fontSize: 11, fontWeight: 700 }}>
                         <StatusIcon size={11} /> {statusCfg.label}
                       </span>
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: 600, color: (review.reportCount || 0) > 5 ? '#ffb4ab' : '#E4E1EE' }}>
+                      {review.reportCount || 0}
                     </td>
                     <td style={{ padding: "12px 16px", fontSize: 12, color: "#C7C4D8" }}>
                       {fmtRelative(review.createdAt)}<br/>{fmtDate(review.createdAt)}

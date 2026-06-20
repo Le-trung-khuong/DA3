@@ -434,3 +434,31 @@ export async function addXPLog(
     timestamp: serverTimestamp(),
   });
 }
+
+// ============ USER OVERALL PROGRESS ============
+
+export interface CourseProgress {
+  courseId: string;
+  courseName: string;
+  percent: number;
+}
+
+export const getUserOverallProgress = async (userId: string): Promise<CourseProgress[]> => {
+  const enrollSnap = await getDocs(query(collection(db, 'enrollments'), where('userId', '==', userId), where('isActive', '==', true)));
+  const courseIds = enrollSnap.docs.map(d => d.data().courseId);
+  const result: CourseProgress[] = [];
+  for (const courseId of courseIds) {
+    const progress = await getCourseProgress(userId, courseId);
+    const courseSnap = await getDoc(doc(db, 'courses', courseId));
+    const courseData = courseSnap.data();
+    const totalLessons = courseData?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
+    const completedLessons = progress.filter(p => p.status === 'completed').length;
+    const percent = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+    result.push({
+      courseId,
+      courseName: courseData?.title || 'Unknown',
+      percent
+    });
+  }
+  return result;
+};

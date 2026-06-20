@@ -4,6 +4,8 @@ import { AuthProvider } from "./contexts/AuthContext";
 import LayoutAdmin from "./layout/LayoutAdmin";
 import LayoutClient from "./layout/LayoutClient";
 import Login from "./pages/admin/Login";
+import Home from "./pages/client/Home";
+import Register from "./pages/client/Register";
 import { LoadingSpinner } from "./components/common/LoadingSpinner";
 
 // --------------------- CLIENT PAGES ---------------------
@@ -44,10 +46,11 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/admin/login" element={<Login />} />
+          <Route path="/register" element={<Suspense fallback={<LoadingSpinner />}><Register /></Suspense>} />
 
           {/* Client routes */}
           <Route element={<LayoutClient />}>
-            <Route index element={<Suspense fallback={<LoadingSpinner />}><CourseCatalog /></Suspense>} />
+            <Route index element={<Suspense fallback={<LoadingSpinner />}><Home /></Suspense>} />
             <Route path="courses" element={<Suspense fallback={<LoadingSpinner />}><CourseCatalog /></Suspense>} />
             <Route path="courses/:courseId" element={<Suspense fallback={<LoadingSpinner />}><CourseDetail /></Suspense>} />
             <Route path="learn/:courseId/:moduleId/:lessonId" element={<Suspense fallback={<LoadingSpinner />}><LessonPlayer /></Suspense>} />

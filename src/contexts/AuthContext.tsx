@@ -17,8 +17,14 @@ import React, {
 import type { User } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { auth, db } from "../utils/config";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { 
+  onAuthStateChanged, 
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
+} from "firebase/auth";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { updateUserStreak } from "../services/streakService";
 
 export type UserRole = "admin" | "moderator" | "instructor" | "user";
@@ -45,6 +51,8 @@ export interface AuthContextValue {
   error: FirebaseError | null;
   logout: () => Promise<void>;
   refreshRole: () => void;
+  signIn: (email: string, password: string) => Promise<User>;
+  signUp: (email: string, password: string, displayName: string) => Promise<User>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -72,13 +80,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUserProfile(null);
   }, []);
 
+  const signIn = async (email: string, password: string) => {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    return cred.user;
+  };
+
+  const signUp = async (email: string, password: string, displayName: string) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    await updateProfile(cred.user, { displayName });
+    await setDoc(doc(db, 'users', cred.user.uid), {
+      displayName,
+      email,
+      role: 'user',
+      status: 'active',
+      level: 1,
+      totalXP: 0,
+      streakDays: 0,
+      createdAt: new Date(),
+    });
+    return cred.user;
+  };
+
   const refreshRole = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
 
-      // Hủy listener cũ
       profileUnsubRef.current?.();
       profileUnsubRef.current = null;
 
@@ -89,7 +117,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       updateUserStreak(user.uid).catch(console.error);
 
-      // Realtime role listener
       const userRef = doc(db, "users", user.uid);
       const unsubProfile = onSnapshot(
         userRef,
@@ -139,6 +166,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     error,
     logout,
     refreshRole,
+    signIn,
+    signUp,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

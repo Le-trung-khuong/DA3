@@ -6,6 +6,8 @@
 import React from "react";
 import { Star, Calendar, Edit, Trash2 } from "lucide-react";
 import type { Review } from "../../types/review";
+import { useAuth } from "../../hooks/useAuth";
+import { reportReview } from "../../services/reviewService";
 
 interface ReviewListProps {
   reviews: Review[];
@@ -29,6 +31,21 @@ const fmtDate = (d: any): string => {
 };
 
 export function ReviewList({ reviews, loading, currentUserId, onEdit, onDelete }: ReviewListProps) {
+  const { currentUser } = useAuth();
+
+const handleReport = async (reviewId: string) => {
+  if (!currentUser) {
+    alert('Vui lòng đăng nhập để report');
+    return;
+  }
+  try {
+    await reportReview(reviewId, currentUser.uid);
+    alert('Đã report review. Cảm ơn bạn!');
+  } catch (err: any) {
+    alert('Lỗi: ' + err.message);
+  }
+};
+
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 32 }}>
@@ -144,6 +161,23 @@ export function ReviewList({ reviews, loading, currentUserId, onEdit, onDelete }
                   <Trash2 size={12} /> Xóa
                 </button>
               </div>
+            )}
+            {currentUserId && review.userId !== currentUserId && (
+              <button
+                onClick={() => handleReport(review.id)}
+                style={{
+                  background: "rgba(255,180,171,0.2)",
+                  border: "none",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#ffb4ab",
+                  cursor: "pointer",
+                }}
+              >
+                Báo cáo
+              </button>
             )}
           </div>
           <p style={{ fontSize: 14, color: "#C7C4D8", lineHeight: 1.6 }}>{review.content}</p>

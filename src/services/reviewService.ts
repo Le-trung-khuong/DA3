@@ -15,6 +15,8 @@ import {
   where,
   getDocs,
   getDoc,
+  increment,
+  arrayUnion,
 } from "firebase/firestore";
 import type { AdminActionResult } from "./adminService";
 import type { Review } from "../types/review";
@@ -172,4 +174,27 @@ export async function hasUserReviewed(userId: string, courseId: string): Promise
   );
   const snap = await getDocs(q);
   return !snap.empty;
+}
+
+// ============ REPORT ============
+
+/**
+ * Report một review (tăng reportCount, thêm userId vào danh sách reportedBy)
+ */
+export async function reportReview(reviewId: string, userId: string): Promise<void> {
+  const reviewRef = doc(db, "reviews", reviewId);
+  await updateDoc(reviewRef, {
+    reportCount: increment(1),
+    reportedBy: arrayUnion(userId),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Lấy danh sách review sắp xếp theo reportCount (giảm dần)
+ */
+export async function getReviewsSortedByReports(): Promise<Review[]> {
+  const snap = await getDocs(collection(db, "reviews"));
+  const reviews = snap.docs.map(d => ({ id: d.id, ...d.data() } as Review));
+  return reviews.sort((a, b) => (b.reportCount || 0) - (a.reportCount || 0));
 }
