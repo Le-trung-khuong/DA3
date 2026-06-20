@@ -1,43 +1,72 @@
-/**
- * src/services/dailyGoalService.ts
- * Quản lý mục tiêu hằng ngày của user
- */
-
 import { db } from '../utils/config';
-import { collection, doc, setDoc, getDocs, updateDoc, query, where } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, increment } from 'firebase/firestore';
 
-const COLLECTION = 'dailyGoals';
+export interface DailyTask {
+  id: string;
+  text: string;
+  xpReward: number;
+  icon: string;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
+}
 
-export interface DailyGoal {
-  id?: string;
+// Nhiệm vụ gắn với hành động học tập thực tế
+export const DAILY_TASKS: DailyTask[] = [
+  { id: 'complete_lesson', text: 'Hoàn thành 1 bài học', xpReward: 10, icon: '📚', lessonType: 'lesson' },
+  { id: 'complete_quiz', text: 'Hoàn thành 1 bài quiz', xpReward: 15, icon: '📝', lessonType: 'quiz' },
+  { id: 'complete_reading', text: 'Đọc 1 bài reading', xpReward: 10, icon: '📖', lessonType: 'reading' },
+  { id: 'complete_video', text: 'Xem 1 video bài giảng', xpReward: 10, icon: '🎬', lessonType: 'video' },
+];
+
+export interface DailyProgress {
   userId: string;
-  date: string; // 'YYYY-MM-DD'
-  goals: string[];
-  completed: boolean[];
+  date: string;
+  completedTasks: string[];
   createdAt: Date;
 }
 
-export const getDailyGoals = async (userId: string, date: string): Promise<DailyGoal | null> => {
-  const q = query(collection(db, COLLECTION), where('userId', '==', userId), where('date', '==', date));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const docSnap = snap.docs[0];
-  return { id: docSnap.id, ...docSnap.data() } as DailyGoal;
+export const getDailyProgress = async (userId: string, date: string): Promise<DailyProgress | null> => {
+  const ref = doc(db, 'dailyProgress', `${userId}_${date}`);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return { ...snap.data() } as DailyProgress;
 };
 
-export const saveDailyGoals = async (userId: string, date: string, goals: string[], completed: boolean[]): Promise<void> => {
-  const existing = await getDailyGoals(userId, date);
-  if (existing && existing.id) {
-    await updateDoc(doc(db, COLLECTION, existing.id), { goals, completed });
-  } else {
-    await setDoc(doc(collection(db, COLLECTION)), { userId, date, goals, completed, createdAt: new Date() });
+/**
+ * Chỉ được gọi từ các service học tập (progressService) khi user thực sự hoàn thành hành động.
+ * Không cho phép gọi từ UI.
+ */
+export const completeTask = async (userId: string, date: string, taskId: string): Promise<{ xpEarned: number }> => {
+  const ref = doc(db, 'dailyProgress', `${userId}_${date}`);
+  const snap = await getDoc(ref);
+  const completedTasks: string[] = snap.exists() ? snap.data().completedTasks || [] : [];
+
+  if (completedTasks.includes(taskId)) {
+    return { xpEarned: 0 }; // đã hoàn thành hôm nay
   }
+
+  const task = DAILY_TASKS.find(t => t.id === taskId);
+  if (!task) throw new Error('Không tìm thấy nhiệm vụ');
+
+  const updated = [...completedTasks, taskId];
+  await setDoc(ref, {
+    userId,
+    date,
+    completedTasks: updated,
+    createdAt: snap.exists() ? snap.data().createdAt : new Date(),
+  }, { merge: true });
+
+  const userRef = doc(db, 'users', userId);
+  await updateDoc(userRef, { totalXP: increment(task.xpReward) });
+
+  return { xpEarned: task.xpReward };
 };
 
-export const toggleGoalCompletion = async (userId: string, date: string, index: number): Promise<void> => {
-  const existing = await getDailyGoals(userId, date);
-  if (!existing || !existing.id) return;
-  const newCompleted = [...existing.completed];
-  newCompleted[index] = !newCompleted[index];
-  await updateDoc(doc(db, COLLECTION, existing.id), { completed: newCompleted });
+/**
+ * Hàm tiện lợi để kiểm tra và hoàn thành nhiệm vụ dựa trên lessonType
+ */
+export const checkAndCompleteDailyTask = async (userId: string, lessonType: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard') => {
+  const date = new Date().toISOString().slice(0, 10);
+  const task = DAILY_TASKS.find(t => t.lessonType === lessonType);
+  if (!task) return;
+  await completeTask(userId, date, task.id);
 };

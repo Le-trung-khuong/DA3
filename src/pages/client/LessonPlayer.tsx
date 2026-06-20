@@ -1,8 +1,4 @@
-/**
- * src/pages/client/LessonPlayer.tsx
- * Trình phát bài học tổng hợp - sửa lỗi reload 404
- */
-
+// src/pages/client/LessonPlayer.tsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDocument } from "../../hooks/useFirestore";
@@ -75,10 +71,8 @@ export default function LessonPlayer() {
     }
   }, [course, moduleId, lessonId, navigate]);
 
-  // Hàm xử lý sau khi hoàn thành: refresh dữ liệu progress và cập nhật UI
   const handleLessonComplete = async () => {
-    await refreshProgress(); // giả sử useProgress có refreshProgress
-    // navigate lại chính route đó để remount (có thể không cần nếu refresh đã cập nhật state)
+    await refreshProgress();
     navigate(`/learn/${courseId}/${moduleId}/${lessonId}`, { replace: true });
   };
 
@@ -159,6 +153,7 @@ export default function LessonPlayer() {
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
             isCompleted={completed}
+            lessonType="video"
           />
         )}
 
@@ -174,6 +169,7 @@ export default function LessonPlayer() {
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
             isCompleted={completed}
+            lessonType="quiz"
           />
         )}
 
@@ -188,6 +184,7 @@ export default function LessonPlayer() {
             xpReward={lesson.xpReward}
             onComplete={handleLessonComplete}
             isCompleted={completed}
+            lessonType="reading"
           />
         )}
 
@@ -203,6 +200,7 @@ export default function LessonPlayer() {
             savedProgress={flashcardProgress}
             onComplete={handleLessonComplete}
             isCompleted={completed}
+            lessonType="flashcard"
           />
         )}
       </div>

@@ -16,6 +16,7 @@ interface ReadingLessonProps {
   xpReward: number;
   onComplete?: () => void;
   isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
 interface Heading {
@@ -81,6 +82,7 @@ export function ReadingLesson({
   xpReward,
   onComplete,
   isCompleted = false,
+  lessonType = 'reading',
 }: ReadingLessonProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [headings, setHeadings] = useState<Heading[]>([]);
@@ -91,13 +93,11 @@ export function ReadingLesson({
 
   const enhancedContent = useMemo(() => enhanceContentForCards(content), [content]);
 
-  // Extract headings and reading time
   useEffect(() => {
     setHeadings(extractHeadings(content));
     setReadingTime(estimateReadingTime(content));
   }, [content]);
 
-  // Load resume data
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
@@ -117,7 +117,6 @@ export function ReadingLesson({
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompleted]);
 
-  // Auto-save resume data (debounced)
   const saveScrollPercent = useCallback(async () => {
     if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
     await saveResumeData(userId, courseId, moduleId, lessonId, {
@@ -132,7 +131,6 @@ export function ReadingLesson({
     return () => clearTimeout(debounce);
   }, [readProgress, saveScrollPercent]);
 
-  // Scroll handler to update readProgress
   useEffect(() => {
     const handleScroll = () => {
       if (!contentRef.current || isCompleted) return;
@@ -151,7 +149,6 @@ export function ReadingLesson({
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isCompleted]);
 
-  // Intersection observer for active heading
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -170,7 +167,6 @@ export function ReadingLesson({
 
   const canComplete = readProgress >= 80 && !isCompleted;
 
-  // Markdown components (giữ nguyên)
   const markdownComponents = {
     h1: ({ children }: any) => {
       const text = children?.toString() || '';
@@ -296,6 +292,7 @@ export function ReadingLesson({
               onComplete={onComplete}
               disabled={!canComplete}
               isCompleted={isCompleted}
+              lessonType={lessonType}
             />
             {!isCompleted && readProgress < 80 && (
               <p style={{ fontSize: '0.85rem', color: '#FFB785', marginTop: '0.75rem' }}>

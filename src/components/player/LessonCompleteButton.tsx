@@ -12,6 +12,7 @@ interface LessonCompleteButtonProps {
   onComplete?: () => void;
   disabled?: boolean;
   isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
 export function LessonCompleteButton({
@@ -23,6 +24,7 @@ export function LessonCompleteButton({
   onComplete,
   disabled = false,
   isCompleted = false,
+  lessonType = 'lesson',
 }: LessonCompleteButtonProps) {
   const [loading, setLoading] = useState(false);
   const [localCompleted, setLocalCompleted] = useState(false);
@@ -36,7 +38,7 @@ export function LessonCompleteButton({
     setLoading(true);
 
     try {
-      await completeLesson(userId, courseId, moduleId, lessonId, xpReward);
+      await completeLesson(userId, courseId, moduleId, lessonId, xpReward, lessonType);
       setLocalCompleted(true);
       onComplete?.();
     } catch (error) {

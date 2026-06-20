@@ -1,9 +1,8 @@
 // src/components/player/VideoLesson.tsx
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize, Settings, Bookmark, FileText, X, CheckCircle } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, Bookmark, FileText, X } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveResumeData, getResumeData } from "../../services/progressService";
-import { useAuth } from "../../contexts/AuthContext";
 
 interface VideoLessonProps {
   userId: string;
@@ -15,6 +14,7 @@ interface VideoLessonProps {
   xpReward: number;
   onComplete?: () => void;
   isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
 function getYouTubeEmbedUrl(url: string): string | null {
@@ -32,7 +32,8 @@ function getYouTubeEmbedUrl(url: string): string | null {
 }
 
 export function VideoLesson({
-  userId, courseId, moduleId, lessonId, title, videoUrl, xpReward, onComplete, isCompleted = false
+  userId, courseId, moduleId, lessonId, title, videoUrl, xpReward, onComplete, isCompleted = false,
+  lessonType = 'video',
 }: VideoLessonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -41,14 +42,12 @@ export function VideoLesson({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState("");
-  const [showTranscript, setShowTranscript] = useState(false);
   const [bookmarks, setBookmarks] = useState<number[]>([]);
   const [watchProgress, setWatchProgress] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const isYouTube = videoUrl?.includes('youtu.be') || videoUrl?.includes('youtube.com');
   const embedUrl = isYouTube ? getYouTubeEmbedUrl(videoUrl) : null;
 
-  // Load saved notes & bookmarks from localStorage
   useEffect(() => {
     const savedNotes = localStorage.getItem(`notes_${lessonId}`);
     if (savedNotes) setNotes(savedNotes);
@@ -56,25 +55,20 @@ export function VideoLesson({
     if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
   }, [lessonId]);
 
-  // Save notes to localStorage
   useEffect(() => {
     localStorage.setItem(`notes_${lessonId}`, notes);
   }, [notes, lessonId]);
 
-  // Save bookmarks
   useEffect(() => {
     localStorage.setItem(`bookmarks_${lessonId}`, JSON.stringify(bookmarks));
   }, [bookmarks, lessonId]);
 
-  // Update watch progress
   useEffect(() => {
     if (duration > 0) {
-      const progress = (currentTime / duration) * 100;
-      setWatchProgress(progress);
+      setWatchProgress((currentTime / duration) * 100);
     }
   }, [currentTime, duration]);
 
-  // ✅ Load resume data
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
@@ -87,7 +81,6 @@ export function VideoLesson({
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompleted]);
 
-  // ✅ Auto-save resume data (debounced)
   const saveCurrentTime = useCallback(async () => {
     if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
     if (videoRef.current && !isNaN(videoRef.current.currentTime)) {
@@ -101,7 +94,7 @@ export function VideoLesson({
     if (!videoRef.current || isCompleted) return;
     const interval = setInterval(() => {
       saveCurrentTime();
-    }, 5000); // lưu mỗi 5 giây
+    }, 5000);
     return () => clearInterval(interval);
   }, [saveCurrentTime, isCompleted]);
 
@@ -173,6 +166,7 @@ export function VideoLesson({
             userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
             xpReward={xpReward} onComplete={onComplete} disabled={!canComplete}
             isCompleted={isCompleted}
+            lessonType={lessonType}
           />
           {!isCompleted && watchProgress < 80 && (
             <p style={{ fontSize: 12, color: "#FFB785", marginTop: 8 }}>
@@ -260,16 +254,6 @@ export function VideoLesson({
         </div>
       )}
 
-      {showTranscript && (
-        <div style={{ background: "rgba(26,26,46,0.8)", borderRadius: 16, padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#E4E1EE" }}>Transcript</span>
-            <button onClick={() => setShowTranscript(false)}><X size={14} /></button>
-          </div>
-          <p style={{ fontSize: 13, color: "#C7C4D8", marginTop: 8 }}>Transcript not available yet.</p>
-        </div>
-      )}
-
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#C7C4D8", marginBottom: 6 }}>
           <span>Watch progress</span>
@@ -285,6 +269,7 @@ export function VideoLesson({
           userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
           xpReward={xpReward} onComplete={onComplete} disabled={!canComplete}
           isCompleted={isCompleted}
+          lessonType={lessonType}
         />
         {!isCompleted && watchProgress < 80 && (
           <p style={{ fontSize: 12, color: "#FFB785", marginTop: 8 }}>

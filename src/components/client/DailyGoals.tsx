@@ -1,70 +1,78 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { getDailyGoals, saveDailyGoals, toggleGoalCompletion } from '../../services/dailyGoalService';
+import { getDailyProgress, DAILY_TASKS } from '../../services/dailyGoalService';
+import { CheckCircle, Target } from 'lucide-react';
 
 const DailyGoals: React.FC = () => {
   const { currentUser } = useAuth();
-  const [goals, setGoals] = useState<string[]>([]);
-  const [completed, setCompleted] = useState<boolean[]>([]);
-  const [newGoal, setNewGoal] = useState('');
+  const [completedIds, setCompletedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    if (currentUser) {
-      getDailyGoals(currentUser.uid, today).then(data => {
-        if (data) {
-          setGoals(data.goals || []);
-          setCompleted(data.completed || []);
-        } else {
-          setGoals([]);
-          setCompleted([]);
-        }
-      });
-    }
+    if (!currentUser) return;
+    getDailyProgress(currentUser.uid, today)
+      .then(data => {
+        setCompletedIds(data?.completedTasks || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [currentUser, today]);
 
-  const handleAdd = async () => {
-    if (!newGoal.trim() || !currentUser) return;
-    const newGoals = [...goals, newGoal.trim()];
-    const newCompleted = [...completed, false];
-    setGoals(newGoals);
-    setCompleted(newCompleted);
-    await saveDailyGoals(currentUser.uid, today, newGoals, newCompleted);
-    setNewGoal('');
-  };
+  if (loading) return <div style={{ color: '#C7C4D8' }}>Đang tải...</div>;
 
-  const handleToggle = async (index: number) => {
-    if (!currentUser) return;
-    await toggleGoalCompletion(currentUser.uid, today, index);
-    const newCompleted = [...completed];
-    newCompleted[index] = !newCompleted[index];
-    setCompleted(newCompleted);
-  };
+  const total = DAILY_TASKS.length;
+  const done = completedIds.length;
 
   return (
-    <div className="bg-white p-4 rounded shadow">
-      <h2 className="text-xl font-bold mb-3">🎯 Mục tiêu hằng ngày</h2>
-      <ul className="space-y-2">
-        {goals.map((g, i) => (
-          <li key={i} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={completed[i] || false}
-              onChange={() => handleToggle(i)}
-            />
-            <span className={completed[i] ? 'line-through text-gray-400' : ''}>{g}</span>
-          </li>
-        ))}
-      </ul>
-      <div className="flex mt-3 gap-2">
-        <input
-          className="flex-1 border px-2 py-1 rounded"
-          value={newGoal}
-          onChange={e => setNewGoal(e.target.value)}
-          placeholder="Thêm mục tiêu..."
-        />
-        <button className="bg-blue-500 text-white px-4 py-1 rounded" onClick={handleAdd}>Thêm</button>
+    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Target size={22} color="#6C63FF" /> Nhiệm vụ hằng ngày
+        </h2>
+        <span style={{ fontSize: 14, color: '#C7C4D8', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: 20 }}>
+          {done}/{total}
+        </span>
       </div>
+
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {DAILY_TASKS.map(task => {
+          const isDone = completedIds.includes(task.id);
+          return (
+            <li
+              key={task.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '10px 12px',
+                borderRadius: 8,
+                marginBottom: 4,
+                background: isDone ? 'rgba(255,255,255,0.04)' : 'transparent',
+                opacity: isDone ? 0.7 : 1,
+              }}
+            >
+              {isDone ? (
+                <CheckCircle size={20} color="#45f1c5" />
+              ) : (
+                <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid #47464f', flexShrink: 0 }} />
+              )}
+              <span style={{ fontSize: 15, color: isDone ? '#47464f' : '#E4E1EE', textDecoration: isDone ? 'line-through' : 'none' }}>
+                {task.icon} {task.text}
+              </span>
+              <span style={{ marginLeft: 'auto', fontSize: 13, color: '#C7C4D8' }}>
+                +{task.xpReward} XP
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {done === total && (
+        <div style={{ marginTop: 16, padding: 12, background: 'rgba(69,241,197,0.1)', borderRadius: 8, textAlign: 'center', color: '#45f1c5' }}>
+          🎉 Hoàn thành tất cả nhiệm vụ hôm nay!
+        </div>
+      )}
     </div>
   );
 };

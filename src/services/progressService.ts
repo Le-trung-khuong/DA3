@@ -21,7 +21,8 @@ import { updateUserStreak } from "./streakService";
 import { getActiveEvent } from "./eventService";
 import type { ResumeData } from "../types/progress";
 import { checkAndGenerateCertificate } from "./certificateService";
-import { checkAndUnlockAchievements } from "./achievementService"; // ✅ thêm
+import { checkAndUnlockAchievementsLegacy } from "./achievementService"; // ✅ sửa import
+import { checkAndCompleteDailyTask } from "./dailyGoalService";
 
 // ============ TYPES ============
 export interface LessonProgress {
@@ -223,9 +224,10 @@ export async function completeLesson(
   courseId: string,
   moduleId: string,
   lessonId: string,
-  xpReward: number
+  xpReward: number,
+  lessonType: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard' = 'lesson'
 ): Promise<void> {
-  console.log(`[completeLesson] Start: userId=${userId}, lessonId=${lessonId}, xpReward=${xpReward}`);
+  console.log(`[completeLesson] Start: userId=${userId}, lessonId=${lessonId}, xpReward=${xpReward}, type=${lessonType}`);
 
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
@@ -262,7 +264,7 @@ export async function completeLesson(
       courseId,
       moduleId,
       lessonId,
-      lessonType: "lesson",
+      lessonType: lessonType,
       status: "completed",
       xpEarned: finalXPReward,
       completedAt: serverTimestamp(),
@@ -287,6 +289,13 @@ export async function completeLesson(
   await addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId}`, "lesson_complete");
   console.log(`[completeLesson] Success: +${finalXPReward} XP to user ${userId}`);
 
+  // ✅ Hoàn thành nhiệm vụ hằng ngày theo loại lesson
+  try {
+    await checkAndCompleteDailyTask(userId, lessonType);
+  } catch (err) {
+    console.error("Failed to complete daily task:", err);
+  }
+
   // ✅ KIỂM TRA VÀ SINH CHỨNG CHỈ
   try {
     const courseRef = doc(db, "courses", courseId);
@@ -308,7 +317,7 @@ export async function completeLesson(
     console.error("Failed to check/generate certificate:", certErr);
   }
 
-  // ✅ KIỂM TRA VÀ MỞ KHÓA THÀNH TỰU
+  // ✅ KIỂM TRA VÀ MỞ KHÓA THÀNH TỰU (dùng hàm legacy)
   try {
     // Lấy thông tin user mới nhất
     const userSnapAfter = await getDoc(userRef);
@@ -351,10 +360,11 @@ export async function completeLesson(
       currentStreak: userDataAfter.currentStreak || 0,
       completedCourses: completedCoursesCount,
     };
-    await checkAndUnlockAchievements(userId, "lessons_completed", eventData.completedLessons, eventData);
-    await checkAndUnlockAchievements(userId, "total_xp", eventData.totalXP, eventData);
-    await checkAndUnlockAchievements(userId, "streak_days", eventData.currentStreak, eventData);
-    await checkAndUnlockAchievements(userId, "courses_completed", eventData.completedCourses, eventData);
+    // Gọi hàm legacy với 4 tham số
+    await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
+    await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
+    await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);
+    await checkAndUnlockAchievementsLegacy(userId, "courses_completed", eventData.completedCourses, eventData);
   } catch (achErr) {
     console.error("Failed to check achievements:", achErr);
   }

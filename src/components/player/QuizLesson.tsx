@@ -23,6 +23,7 @@ interface QuizLessonProps {
   xpReward: number;
   onComplete?: () => void;
   isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
 export function QuizLesson({
@@ -36,6 +37,7 @@ export function QuizLesson({
   xpReward,
   onComplete,
   isCompleted: initialCompleted = false,
+  lessonType = 'quiz',
 }: QuizLessonProps) {
   const [answers, setAnswers] = useState<{ [qid: string]: number }>({});
   const [submitted, setSubmitted] = useState(false);
@@ -48,7 +50,6 @@ export function QuizLesson({
   const [existingScore, setExistingScore] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Kiểm tra lại từ server nếu chưa có initialCompleted hoặc cần lấy điểm cũ
   useEffect(() => {
     const checkCompletion = async () => {
       if (!userId) return;
@@ -68,7 +69,6 @@ export function QuizLesson({
     checkCompletion();
   }, [userId, courseId, moduleId, lessonId, initialCompleted]);
 
-  // Load resume data (answers, currentIndex, timeLeft)
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompleted || submitted) return;
@@ -82,7 +82,6 @@ export function QuizLesson({
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompleted, submitted]);
 
-  // Auto-save resume data (debounced)
   useEffect(() => {
     if (!userId || !courseId || !moduleId || !lessonId || submitted || isCompleted) return;
     const timeout = setTimeout(() => {
@@ -95,7 +94,6 @@ export function QuizLesson({
     return () => clearTimeout(timeout);
   }, [answers, currentIndex, timeLeft, submitted, isCompleted, userId, courseId, moduleId, lessonId]);
 
-  // Timer effect
   useEffect(() => {
     if (!submitted && timerActive && timeLeft > 0 && !isCompleted) {
       const interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
@@ -154,7 +152,6 @@ export function QuizLesson({
 
     try {
       await saveQuizAttempt(userId, courseId, moduleId, lessonId, attempt);
-      // After successful submission, clear resume data
       await saveResumeData(userId, courseId, moduleId, lessonId, {});
     } catch (err) {
       console.error("Failed to save quiz attempt:", err);
@@ -164,7 +161,6 @@ export function QuizLesson({
     }
   };
 
-  // Nếu quiz đã hoàn thành trước đó -> hiển thị kết quả cũ + nút completed
   if (isCompleted && existingScore !== null) {
     return (
       <div style={{ maxWidth: 800, margin: "0 auto", textAlign: "center" }}>
@@ -183,6 +179,7 @@ export function QuizLesson({
             xpReward={xpReward}
             onComplete={onComplete}
             isCompleted={true}
+            lessonType={lessonType}
           />
         </div>
       </div>
@@ -211,7 +208,6 @@ export function QuizLesson({
           )}
         </div>
 
-        {/* Review answers */}
         <div style={{ marginBottom: 32 }}>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16 }}>Review Answers</h3>
           {questions.map((q, idx) => {
@@ -246,6 +242,7 @@ export function QuizLesson({
               xpReward={xpReward}
               onComplete={onComplete}
               isCompleted={false}
+              lessonType={lessonType}
             />
           </div>
         )}
@@ -259,7 +256,6 @@ export function QuizLesson({
                 setTimeLeft(60 * questions.length);
                 setTimerActive(true);
                 setSubmitting(false);
-                // Clear resume data when retrying
                 saveResumeData(userId, courseId, moduleId, lessonId, {});
               }}
               style={{
@@ -280,7 +276,6 @@ export function QuizLesson({
     );
   }
 
-  // Active quiz view
   const currentQuestion = questions[currentIndex];
   const answeredCount = Object.keys(answers).length;
 
@@ -305,7 +300,6 @@ export function QuizLesson({
         </div>
       </div>
 
-      {/* Progress bar */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#C7C4D8" }}>
           <span>Question {currentIndex + 1} of {questions.length}</span>
@@ -323,7 +317,6 @@ export function QuizLesson({
         </div>
       </div>
 
-      {/* Question */}
       <div style={{ background: "rgba(26,26,46,0.6)", borderRadius: 20, padding: 28, marginBottom: 24 }}>
         <p style={{ fontSize: 20, fontWeight: 600, color: "#E4E1EE", marginBottom: 24 }}>{currentQuestion.text}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -356,7 +349,6 @@ export function QuizLesson({
         </div>
       </div>
 
-      {/* Navigation buttons */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <button
           onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
@@ -405,7 +397,6 @@ export function QuizLesson({
         )}
       </div>
 
-      {/* Question navigator dots */}
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 24, flexWrap: "wrap" }}>
         {questions.map((_, idx) => (
           <button

@@ -23,13 +23,15 @@ interface FlashcardLessonProps {
   savedProgress?: { totalCards: number; rememberedCards: number; lastCardIndex: number };
   onComplete?: () => void;
   isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
 type StudyMode = "learn" | "review" | "test";
 type Difficulty = "again" | "hard" | "good" | "easy";
 
 export function FlashcardLesson({
-  userId, courseId, moduleId, lessonId, title, cards, xpReward, savedProgress, onComplete, isCompleted = false
+  userId, courseId, moduleId, lessonId, title, cards, xpReward, savedProgress, onComplete, isCompleted = false,
+  lessonType = 'flashcard',
 }: FlashcardLessonProps) {
   const [mode, setMode] = useState<StudyMode>("learn");
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -38,13 +40,11 @@ export function FlashcardLesson({
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const [stats, setStats] = useState({ totalReviewed: 0, correct: 0 });
 
-  // SRS
   const { cards: srsCards, submitReview, initCard, refresh: refreshSRS } = useSRS(userId);
   const [showSRS, setShowSRS] = useState(false);
   const [currentSRSIndex, setCurrentSRSIndex] = useState(0);
   const [srsFlipped, setSrsFlipped] = useState(false);
 
-  // Load saved mastered from progress
   useEffect(() => {
     if (savedProgress?.rememberedCards) {
       const masteredIds = cards.slice(0, savedProgress.rememberedCards).map(c => c.id);
@@ -52,7 +52,6 @@ export function FlashcardLesson({
     }
   }, [savedProgress, cards]);
 
-  // Load resume data
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
@@ -65,7 +64,6 @@ export function FlashcardLesson({
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompleted]);
 
-  // Auto-save resume data
   useEffect(() => {
     if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
     const timeout = setTimeout(() => {
@@ -82,7 +80,6 @@ export function FlashcardLesson({
   const masteredCount = mastered.size;
   const allMastered = masteredCount === totalCards;
 
-  // Auto-save flashcard progress
   useEffect(() => {
     const save = async () => {
       const flashcardProgress = {
@@ -101,7 +98,6 @@ export function FlashcardLesson({
     save();
   }, [mastered, currentIndex, cards, userId, courseId, moduleId, lessonId]);
 
-  // Khi tất cả card mastered, khởi tạo SRS
   useEffect(() => {
     if (allMastered && !isCompleted) {
       cards.forEach(card => initCard(card.id));
@@ -143,7 +139,6 @@ export function FlashcardLesson({
     }
   };
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.code === "Space") { e.preventDefault(); handleFlip(); }
@@ -154,11 +149,9 @@ export function FlashcardLesson({
     return () => window.removeEventListener("keydown", handleKey);
   }, [currentIndex, flipped]);
 
-  // Helper render SRS modal
   const renderSRSModal = () => {
     if (!showSRS) return null;
     const srsCard = srsCards[currentSRSIndex];
-    // Tìm thẻ flashcard tương ứng để lấy front/back
     const flashCard = cards.find(c => c.id === srsCard?.cardId);
 
     return (
@@ -211,6 +204,7 @@ export function FlashcardLesson({
         <LessonCompleteButton
           userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
           xpReward={xpReward} onComplete={onComplete} isCompleted={isCompleted}
+          lessonType={lessonType}
         />
         <div style={{ marginTop: 16 }}>
           <button onClick={() => { setShowSRS(true); refreshSRS(); }} style={{ background: '#6C63FF', border: 'none', padding: '6px 16px', borderRadius: 20, color: '#fff', cursor: 'pointer' }}>

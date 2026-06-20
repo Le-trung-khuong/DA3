@@ -21,7 +21,7 @@ export interface AchievementDef {
   title: string;
   description: string;
   icon: string;
-  category: string;
+  category: 'beginner' | 'intermediate' | 'expert' | 'special';
   criteria: { type: string; threshold: number };
   xpReward: number;
   rarity: string;
@@ -121,7 +121,7 @@ export async function claimAchievement(
     // Ghi log XP (sau transaction)
     await addXPLog(userId, achievement.xpReward, `Claimed achievement: ${achievement.title}`, "achievement");
 
-    // Đánh dấu notification liên quan đã được claim (nếu muốn)
+    // Đánh dấu notification liên quan đã được claim
     const notifQuery = query(
       collection(db, "notifications"),
       where("userId", "==", userId),
@@ -150,7 +150,58 @@ async function createAchievementNotification(userId: string, achievement: Achiev
   );
 }
 
+// ✅ Check and unlock for Pomodoro
 export async function checkAndUnlockAchievements(
+  userId: string,
+  stats: {
+    sessions: number;
+    focusScore: number;
+    noPause: boolean;
+    streak?: number;
+    totalMinutes?: number;
+  }
+): Promise<AchievementDef[]> {
+  const defs = await getAchievementDefinitions();
+  const unlockedMap = new Map((await getUserAchievements(userId)).map(a => [a.achievementId, a]));
+  const newlyUnlocked: AchievementDef[] = [];
+
+  for (const def of defs) {
+    const existing = unlockedMap.get(def.id);
+    if (existing && existing.claimedAt !== undefined) continue;
+    if (existing && existing.unlockedAt) continue;
+    
+    let isUnlocked = false;
+    const condition = def.criteria;
+    
+    switch (condition.type) {
+      case 'sessions':
+        isUnlocked = stats.sessions >= condition.threshold;
+        break;
+      case 'focusScore':
+        isUnlocked = stats.focusScore >= condition.threshold;
+        break;
+      case 'noPause':
+        isUnlocked = stats.noPause === (condition.threshold === 1);
+        break;
+      case 'streak':
+        isUnlocked = (stats.streak || 0) >= condition.threshold;
+        break;
+      case 'totalMinutes':
+        isUnlocked = (stats.totalMinutes || 0) >= condition.threshold;
+        break;
+    }
+    
+    if (isUnlocked) {
+      await unlockAchievement(userId, def, 100);
+      newlyUnlocked.push(def);
+    }
+  }
+  
+  return newlyUnlocked;
+}
+
+// Legacy function for backward compatibility
+export async function checkAndUnlockAchievementsLegacy(
   userId: string,
   eventType: string,
   currentValue: number,
@@ -162,8 +213,8 @@ export async function checkAndUnlockAchievements(
 
   for (const def of defs) {
     const existing = unlockedMap.get(def.id);
-    if (existing && existing.claimedAt !== undefined) continue; // already claimed
-    if (existing && existing.unlockedAt) continue; // already unlocked but not claimed
+    if (existing && existing.claimedAt !== undefined) continue;
+    if (existing && existing.unlockedAt) continue;
     if (def.criteria.type !== eventType) continue;
     if (currentValue >= def.criteria.threshold) {
       await unlockAchievement(userId, def, currentValue);
