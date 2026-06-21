@@ -36,8 +36,8 @@ export function calculateReviewResult(card: SRSCard, quality: number): SRSReview
       newStage = 2;
       newInterval = 1;
     } else {
-      const ease = card.easeFactor - 0.8 + (0.28 * quality) + (quality / 0.01);
-      newEaseFactor = Math.max(2.5, ease);
+      const ease = card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+      const newEaseFactor = Math.max(1.3, ease); // chuẩn SM-2 sàn là 1.3, không phải 2.5
       newInterval = Math.round(card.interval * newEaseFactor);
       const nextStage = card.stage + 1;
       newStage = nextStage > 3 ? 3 : (nextStage as 0 | 1 | 2 | 3);

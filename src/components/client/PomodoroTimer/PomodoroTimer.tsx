@@ -1,7 +1,9 @@
+// src/components/client/PomodoroTimer/PomodoroTimer.tsx
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { usePomodoro } from '../../../hooks/usePomodoro';
 import { AchievementDef } from '../../../types/pomodoro';
+import { PomodoroSettings } from './PomodoroSettings';
 import {
   Play,
   Pause,
@@ -14,6 +16,7 @@ import {
   X,
   Bell,
   BellOff,
+  Settings,
 } from 'lucide-react';
 
 const formatTime = (seconds: number): string => {
@@ -75,15 +78,19 @@ export default function PomodoroTimer() {
     newAchievements,
     showAchievement,
     setShowAchievement,
+    settingsLoading,
   } = usePomodoro();
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showFocusResult, setShowFocusResult] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
+  // Set userId khi component mount
   useEffect(() => {
     if (userId) setUserId(userId);
   }, [userId, setUserId]);
 
+  // Hiển thị focus result khi session hoàn thành
   useEffect(() => {
     if (sessionCompleted && focusResult) {
       setShowFocusResult(true);
@@ -92,14 +99,17 @@ export default function PomodoroTimer() {
     }
   }, [sessionCompleted, focusResult]);
 
+  // Play sound khi chuyển trạng thái
   useEffect(() => {
-    if (soundEnabled && (state.status === 'shortBreak' || state.status === 'longBreak')) {
-      const audio = new Audio('/sounds/break.mp3');
-      audio.play().catch(() => {});
-    }
-    if (soundEnabled && state.status === 'working' && state.currentCycle > 0) {
-      const audio = new Audio('/sounds/start.mp3');
-      audio.play().catch(() => {});
+    if (soundEnabled) {
+      if (state.status === 'shortBreak' || state.status === 'longBreak') {
+        const audio = new Audio('/sounds/break.mp3');
+        audio.play().catch(() => {});
+      }
+      if (state.status === 'working' && state.currentCycle > 0) {
+        const audio = new Audio('/sounds/start.mp3');
+        audio.play().catch(() => {});
+      }
     }
   }, [state.status, state.currentCycle, soundEnabled]);
 
@@ -118,6 +128,23 @@ export default function PomodoroTimer() {
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
 
+  if (settingsLoading) {
+    return (
+      <div
+        style={{
+          background: 'rgba(26,26,46,0.6)',
+          borderRadius: '24px',
+          padding: '24px',
+          maxWidth: '480px',
+          margin: '0 auto',
+          textAlign: 'center',
+        }}
+      >
+        <p style={{ color: '#C7C4D8' }}>Loading settings...</p>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -131,6 +158,7 @@ export default function PomodoroTimer() {
         position: 'relative',
       }}
     >
+      {/* Achievement Modal */}
       {showAchievement && newAchievements.length > 0 && (
         <div
           style={{
@@ -192,14 +220,68 @@ export default function PomodoroTimer() {
         </div>
       )}
 
+      {/* Settings Modal */}
+      {showSettings && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 200,
+            padding: '20px',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSettings(false);
+          }}
+        >
+          <div style={{ maxWidth: '600px', width: '100%' }}>
+            <PomodoroSettings onClose={() => setShowSettings(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h3 style={{ color: '#E4E1EE', fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Clock size={20} color="#6C63FF" /> Pomodoro
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#C7C4D8',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '8px',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+            title="Cài đặt"
+          >
+            <Settings size={18} />
+          </button>
+          <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            style={{ background: 'none', border: 'none', color: '#C7C4D8', cursor: 'pointer' }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#C7C4D8',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '8px',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
             title={soundEnabled ? 'Tắt âm thanh' : 'Bật âm thanh'}
           >
             {soundEnabled ? <Bell size={16} /> : <BellOff size={16} />}
@@ -210,6 +292,7 @@ export default function PomodoroTimer() {
         </div>
       </div>
 
+      {/* Timer Circle */}
       <div style={{ position: 'relative', width: size, height: size, margin: '0 auto 16px' }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <circle
@@ -252,13 +335,15 @@ export default function PomodoroTimer() {
         </div>
       </div>
 
+      {/* Config Display */}
       <div style={{ display: 'flex', justifyContent: 'space-around', marginBottom: '20px', fontSize: '13px', color: '#C7C4D8' }}>
-        <span>⏱️ {config.workDuration}m</span>
-        <span>☕ {config.shortBreakDuration}m</span>
-        <span>🧘 {config.longBreakDuration}m</span>
-        <span>🔄 {config.cyclesBeforeLongBreak} cycles</span>
+        <span>⏱️ {state.config.workDuration}m</span>
+        <span>☕ {state.config.shortBreakDuration}m</span>
+        <span>🧘 {state.config.longBreakDuration}m</span>
+        <span>🔄 {state.config.cyclesBeforeLongBreak} cycles</span>
       </div>
 
+      {/* Focus Result */}
       {showFocusResult && focusResult && (
         <div
           style={{
@@ -285,6 +370,7 @@ export default function PomodoroTimer() {
         </div>
       )}
 
+      {/* Controls */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
         {isIdle && (
           <button
@@ -419,7 +505,7 @@ export default function PomodoroTimer() {
 
       {isCompleted && (
         <div style={{ marginTop: '16px', color: '#45f1c5', fontSize: '14px' }}>
-          ✅ Phiên hoàn thành! +{config.workDuration * 2} XP
+          ✅ Phiên hoàn thành! +{state.config.workDuration * 2} XP
         </div>
       )}
     </div>

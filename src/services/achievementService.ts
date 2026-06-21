@@ -36,13 +36,19 @@ export interface UserAchievement {
   progress: number;
 }
 
-let achievementDefsCache: AchievementDef[] | null = null;
+// ✅ Cache với TTL 5 phút
+let achievementDefsCache: { data: AchievementDef[]; timestamp: number } | null = null;
+const CACHE_TTL = 5 * 60 * 1000;
 
 export async function getAchievementDefinitions(): Promise<AchievementDef[]> {
-  if (achievementDefsCache) return achievementDefsCache;
+  const now = Date.now();
+  if (achievementDefsCache && (now - achievementDefsCache.timestamp) < CACHE_TTL) {
+    return achievementDefsCache.data;
+  }
   const snapshot = await getDocs(collection(db, "achievements"));
-  achievementDefsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AchievementDef));
-  return achievementDefsCache;
+  const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AchievementDef));
+  achievementDefsCache = { data, timestamp: now };
+  return data;
 }
 
 export async function getUserAchievements(userId: string): Promise<UserAchievement[]> {
@@ -63,7 +69,7 @@ export async function isAchievementUnlocked(userId: string, achievementId: strin
   return snap.exists() && snap.data().unlockedAt !== undefined;
 }
 
-// 🔁 UNLOCK (không cộng XP)
+// ✅ UNLOCK với transaction (FIX BUG #5)
 export async function unlockAchievement(
   userId: string,
   achievementDef: AchievementDef,
@@ -71,23 +77,28 @@ export async function unlockAchievement(
 ): Promise<void> {
   const userAchievementId = `${userId}_${achievementDef.id}`;
   const userAchievementRef = doc(db, "userAchievements", userAchievementId);
-  const existing = await getDoc(userAchievementRef);
-  if (existing.exists() && existing.data().claimedAt !== undefined) return;
-  if (existing.exists() && existing.data().unlockedAt !== undefined) return;
 
-  await setDoc(userAchievementRef, {
-    userId,
-    achievementId: achievementDef.id,
-    unlockedAt: serverTimestamp(),
-    claimedAt: null,
-    progress: currentProgress,
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(userAchievementRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.unlockedAt !== undefined && data.unlockedAt !== null) {
+        return; // đã unlock
+      }
+    }
+    transaction.set(userAchievementRef, {
+      userId,
+      achievementId: achievementDef.id,
+      unlockedAt: serverTimestamp(),
+      claimedAt: null,
+      progress: currentProgress,
+    });
   });
 
-  // Tạo notification để claim
   await createAchievementNotification(userId, achievementDef);
 }
 
-// ✅ CLAIM REWARD (cộng XP)
+// ✅ CLAIM REWARD (giữ nguyên)
 export async function claimAchievement(
   userId: string,
   achievementId: string
@@ -109,19 +120,14 @@ export async function claimAchievement(
       }
       if (!data.unlockedAt) throw new Error("Not unlocked yet");
 
-      // 1. Cập nhật claimedAt
       transaction.update(userAchievementRef, { claimedAt: serverTimestamp() });
-
-      // 2. Cộng XP
       transaction.update(userRef, {
         totalXP: increment(achievement.xpReward),
       });
     });
 
-    // Ghi log XP (sau transaction)
     await addXPLog(userId, achievement.xpReward, `Claimed achievement: ${achievement.title}`, "achievement");
 
-    // Đánh dấu notification liên quan đã được claim
     const notifQuery = query(
       collection(db, "notifications"),
       where("userId", "==", userId),

@@ -12,13 +12,6 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
 
-console.log('ENV TEST');
-console.log({
-  clientId: process.env.PAYOS_CLIENT_ID ? 'FOUND' : 'MISSING',
-  apiKey: process.env.PAYOS_API_KEY ? 'FOUND' : 'MISSING',
-  checksum: process.env.PAYOS_CHECKSUM_KEY ? 'FOUND' : 'MISSING',
-});
-
 const PAYOS_BASE_URL = process.env.PAYOS_BASE_URL || 'https://api-merchant.payos.vn';
 const PAYOS_CLIENT_ID = process.env.PAYOS_CLIENT_ID || '';
 const PAYOS_API_KEY = process.env.PAYOS_API_KEY || '';
@@ -34,11 +27,9 @@ function maskSecret(value: string, keep = 4): string {
 function logAxiosError(error: any) {
   console.error('===== PAYOS ERROR MESSAGE =====');
   console.error(error?.message || error);
-
   if (error?.response) {
     console.error('===== PAYOS ERROR STATUS =====');
     console.error(error.response.status);
-
     console.error('===== PAYOS ERROR DATA =====');
     console.error(JSON.stringify(error.response.data, null, 2));
   }
@@ -48,13 +39,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log('===== PAYOS CREATE ORDER START =====');
   console.log('method:', req.method);
   console.log('body:', JSON.stringify(req.body ?? {}, null, 2));
-  console.log('env:', {
-    PAYOS_BASE_URL,
-    PAYOS_CLIENT_ID: maskSecret(PAYOS_CLIENT_ID),
-    PAYOS_API_KEY: maskSecret(PAYOS_API_KEY),
-    PAYOS_CHECKSUM_KEY: maskSecret(PAYOS_CHECKSUM_KEY),
-    APP_URL,
-  });
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -81,7 +65,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!courseName) {
       return res.status(400).json({ error: 'Invalid course title' });
     }
-
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Invalid course price' });
     }
@@ -95,15 +78,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const userName = String(user.name || 'User').trim();
     const userEmail = String(user.email || '').trim();
 
-    const orderCode = Date.now();
+    // ✅ Fix: orderCode = timestamp + random suffix để tránh collision
+    const timestamp = Date.now();
+    const randomSuffix = Math.floor(Math.random() * 10000);
+    const orderCode = parseInt(`${timestamp}${String(randomSuffix).padStart(4, '0')}`);
+
     transactionId = String(orderCode);
     const transactionRef = db.collection('transactions').doc(transactionId);
 
-    console.log('===== COURSE INFO =====');
-    console.log({ courseId, courseName, amount });
-
-    console.log('===== USER INFO =====');
-    console.log({ userId, userName, userEmail });
+    console.log('===== ORDER INFO =====');
+    console.log({ orderCode, courseId, courseName, amount });
 
     await transactionRef.set({
       id: transactionId,
@@ -133,7 +117,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const returnUrl = `${APP_URL}/payment-success?transactionId=${transactionId}`;
     const cancelUrl = `${APP_URL}/payment-cancel?transactionId=${transactionId}`;
 
-    // items nằm trong payload tạo link, nhưng KHÔNG đưa vào chuỗi ký
     const items = [
       {
         name: courseName.slice(0, 50),
@@ -164,9 +147,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       signature,
     };
 
-    console.log('===== PAYOS SIGNATURE DATA =====');
-    console.log(JSON.stringify(signatureData, null, 2));
-
     console.log('===== PAYOS API PAYLOAD =====');
     console.log(JSON.stringify(apiPayload, null, 2));
 
@@ -183,10 +163,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     );
 
-    console.log('===== PAYOS RESPONSE STATUS =====');
+    console.log('===== PAYOS RESPONSE =====');
     console.log(response.status);
-
-    console.log('===== PAYOS RESPONSE DATA =====');
     console.log(JSON.stringify(response.data, null, 2));
 
     const payosData = response.data?.data ?? response.data;

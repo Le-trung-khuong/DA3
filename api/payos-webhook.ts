@@ -3,6 +3,9 @@
 import "dotenv/config";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db, FieldValue, Timestamp } from "./_lib/firebase-admin.js";
+import { generatePayOSSignature } from "./_lib/payos-utils.js";
+
+const PAYOS_CHECKSUM_KEY = process.env.PAYOS_CHECKSUM_KEY || "";
 
 export default async function handler(
   req: VercelRequest,
@@ -32,6 +35,21 @@ export default async function handler(
       });
     }
 
+    // ✅ 1. Verify signature (nếu có checksum key)
+    const signature = req.headers["x-payos-signature"] as string;
+    if (PAYOS_CHECKSUM_KEY && signature) {
+      const computed = generatePayOSSignature(body, PAYOS_CHECKSUM_KEY);
+      if (computed !== signature) {
+        console.error("Invalid signature");
+        await db.collection("payment_logs").add({
+          action: "webhook_invalid_signature",
+          status: "failed",
+          createdAt: Timestamp.now(),
+        });
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    }
+
     const data = body.data || body;
 
     console.log("===== WEBHOOK DATA =====");
@@ -46,6 +64,7 @@ export default async function handler(
       });
     }
 
+    // Tìm transaction theo orderId
     const transactionQuery = await db
       .collection("transactions")
       .where("orderId", "==", orderCode)
@@ -73,14 +92,21 @@ export default async function handler(
     console.log("===== TRANSACTION FOUND =====");
     console.log(transaction);
 
-    if (transaction.status === "success") {
-      console.log("Transaction already processed");
-
+    // ✅ 2. Idempotency: nếu đã xử lý thì bỏ qua
+    if (transaction.status === "success" || transaction.status === "failed") {
+      console.log("Transaction already processed, ignoring duplicate webhook.");
+      await db.collection("payment_logs").add({
+        transactionId: transactionDoc.id,
+        action: "webhook_duplicate",
+        status: "ignored",
+        createdAt: Timestamp.now(),
+      });
       return res.status(200).json({
         message: "Already processed",
       });
     }
 
+    // Ghi log webhook nhận được
     await db.collection("payment_logs").add({
       transactionId: transactionDoc.id,
       action: "webhook_received",
@@ -92,6 +118,7 @@ export default async function handler(
 
     console.log("===== UPDATE TRANSACTION =====");
 
+    // Cập nhật transaction thành success
     await transactionDoc.ref.update({
       status: "success",
       paidAt: Timestamp.now(),
@@ -104,7 +131,6 @@ export default async function handler(
     console.log("===== CREATE ENROLLMENT =====");
 
     const enrollmentRef = db.collection("enrollments").doc();
-
     await enrollmentRef.set({
       id: enrollmentRef.id,
       userId,
@@ -112,6 +138,14 @@ export default async function handler(
       transactionId: transactionDoc.id,
       enrolledAt: Timestamp.now(),
       isActive: true,
+    });
+
+    // ✅ Cộng XP cho user (dựa trên amount * 10)
+    console.log("===== AWARD XP =====");
+    const xpAmount = Math.floor(transaction.amount * 10);
+    const userRef = db.collection("users").doc(userId);
+    await userRef.update({
+      totalXP: FieldValue.increment(xpAmount),
     });
 
     console.log("===== CREATE NOTIFICATION =====");
@@ -127,6 +161,7 @@ export default async function handler(
       metadata: {
         transactionId: transactionDoc.id,
         courseId,
+        xpAwarded: xpAmount,
       },
     });
 

@@ -1,8 +1,7 @@
 // src/components/player/VideoLesson.tsx
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Bookmark, FileText, X } from "lucide-react";
-import { LessonCompleteButton } from "./LessonCompleteButton";
-import { saveResumeData, getResumeData } from "../../services/progressService";
+import { saveResumeData, getResumeData, completeLesson } from "../../services/progressService";
 
 interface VideoLessonProps {
   userId: string;
@@ -31,47 +30,307 @@ function getYouTubeEmbedUrl(url: string): string | null {
   return null;
 }
 
+function extractVideoId(url: string): string {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=)([^&?#]+)/);
+  return match ? match[1] : '';
+}
+
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
 export function VideoLesson({
-  userId, courseId, moduleId, lessonId, title, videoUrl, xpReward, onComplete, isCompleted = false,
+  userId,
+  courseId,
+  moduleId,
+  lessonId,
+  title,
+  videoUrl,
+  xpReward,
+  onComplete,
+  isCompleted = false,
   lessonType = 'video',
 }: VideoLessonProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [watchProgress, setWatchProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState("");
   const [bookmarks, setBookmarks] = useState<number[]>([]);
-  const [watchProgress, setWatchProgress] = useState(0);
+  const [isCompletedState, setIsCompletedState] = useState(isCompleted);
+  const [playerReady, setPlayerReady] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const isYouTube = videoUrl?.includes('youtu.be') || videoUrl?.includes('youtube.com');
   const embedUrl = isYouTube ? getYouTubeEmbedUrl(videoUrl) : null;
 
-  useEffect(() => {
-    const savedNotes = localStorage.getItem(`notes_${lessonId}`);
-    if (savedNotes) setNotes(savedNotes);
-    const savedBookmarks = localStorage.getItem(`bookmarks_${lessonId}`);
-    if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
-  }, [lessonId]);
+  // ============ YouTube API ============
+  const loadYouTubeAPI = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      if (window.YT && window.YT.Player) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.onload = () => {
+        const checkReady = setInterval(() => {
+          if (window.YT && window.YT.Player) {
+            clearInterval(checkReady);
+            resolve();
+          }
+        }, 100);
+      };
+      document.body.appendChild(script);
+    });
+  }, []);
 
+  // Khởi tạo YouTube Player
   useEffect(() => {
-    localStorage.setItem(`notes_${lessonId}`, notes);
-  }, [notes, lessonId]);
+    if (!isYouTube || !embedUrl || isCompletedState) return;
 
-  useEffect(() => {
-    localStorage.setItem(`bookmarks_${lessonId}`, JSON.stringify(bookmarks));
-  }, [bookmarks, lessonId]);
+    let playerInstance: any = null;
 
+    const initPlayer = async () => {
+      await loadYouTubeAPI();
+      if (!containerRef.current) return;
+
+      const containerId = `youtube-player-${lessonId}`;
+      let container = document.getElementById(containerId);
+      if (!container) {
+        container = document.createElement('div');
+        container.id = containerId;
+        container.style.width = '100%';
+        container.style.height = '100%';
+        containerRef.current.appendChild(container);
+      }
+
+      playerInstance = new window.YT.Player(containerId, {
+        height: '100%',
+        width: '100%',
+        videoId: extractVideoId(videoUrl),
+        playerVars: {
+          controls: 1,
+          modestbranding: 1,
+          rel: 0,
+          fs: 1,
+          enablejsapi: 1,
+        },
+        events: {
+          onReady: (event: any) => {
+            playerRef.current = event.target;
+            const tryGetDuration = () => {
+              const dur = event.target.getDuration();
+              if (dur && dur > 0) {
+                setDuration(dur);
+                setPlayerReady(true);
+                getResumeData(userId, courseId, moduleId, lessonId)
+                  .then(data => {
+                    if (data?.videoCurrentTime !== undefined && data.videoCurrentTime > 0 && data.videoCurrentTime < dur) {
+                      event.target.seekTo(data.videoCurrentTime);
+                      setCurrentTime(data.videoCurrentTime);
+                    }
+                  })
+                  .catch(console.error);
+              } else {
+                setTimeout(tryGetDuration, 200);
+              }
+            };
+            tryGetDuration();
+          },
+          onStateChange: (event: any) => {
+            const player = event.target;
+            if (event.data === window.YT.PlayerState.PLAYING) {
+              setIsPlaying(true);
+              if (intervalRef.current) clearInterval(intervalRef.current);
+              intervalRef.current = setInterval(() => {
+                if (player && player.getCurrentTime) {
+                  const ct = player.getCurrentTime();
+                  setCurrentTime(ct);
+                  if (ct > 0 && !isCompletedState) {
+                    saveResumeData(userId, courseId, moduleId, lessonId, { videoCurrentTime: ct })
+                      .catch(console.error);
+                  }
+                }
+              }, 1000);
+            } else if (
+              event.data === window.YT.PlayerState.PAUSED ||
+              event.data === window.YT.PlayerState.ENDED
+            ) {
+              setIsPlaying(false);
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
+              if (event.data === window.YT.PlayerState.ENDED) {
+                const dur = player.getDuration();
+                if (dur > 0) {
+                  setCurrentTime(dur);
+                  setWatchProgress(100);
+                }
+              }
+            }
+          },
+          // ✅ Xử lý lỗi YouTube, đặc biệt error 150
+          onError: (err: any) => {
+            console.error('YouTube player error:', err);
+            if (err.data === 150) {
+              setYoutubeError('Video không cho phép nhúng. Bạn có thể xem trực tiếp trên YouTube.');
+            } else if (err.data === 2) {
+              setYoutubeError('Video ID không hợp lệ hoặc video bị xóa.');
+            } else if (err.data === 5) {
+              setYoutubeError('Người chơi không thể phát video. Vui lòng thử lại sau.');
+            } else {
+              setYoutubeError('Có lỗi khi phát video. Vui lòng thử lại.');
+            }
+          }
+        }
+      });
+    };
+
+    initPlayer();
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (playerInstance && playerInstance.destroy) {
+        playerInstance.destroy();
+      }
+      const container = document.getElementById(`youtube-player-${lessonId}`);
+      if (container) container.remove();
+    };
+  }, [isYouTube, embedUrl, lessonId, isCompletedState, videoUrl, userId, courseId, moduleId, loadYouTubeAPI]);
+
+  // ============ Tính watchProgress (chỉ để hiển thị) ============
   useEffect(() => {
     if (duration > 0) {
-      setWatchProgress((currentTime / duration) * 100);
+      const progress = Math.min((currentTime / duration) * 100, 100);
+      setWatchProgress(progress);
     }
   }, [currentTime, duration]);
 
+  // ============ Complete Lesson (không cần điều kiện 80%) ============
+  const handleComplete = useCallback(async () => {
+    if (isSubmitting || isCompletedState) return;
+
+    setIsSubmitting(true);
+    try {
+      await completeLesson(userId, courseId, moduleId, lessonId, xpReward, lessonType);
+      setIsCompletedState(true);
+      if (onComplete) onComplete();
+    } catch (err) {
+      console.error('Failed to complete video lesson:', err);
+      alert('Có lỗi xảy ra khi hoàn thành bài học. Vui lòng thử lại.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [userId, courseId, moduleId, lessonId, xpReward, lessonType, isCompletedState, isSubmitting, onComplete]);
+
+  // ============ Render YouTube ============
+  if (isYouTube && embedUrl) {
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 20 }}>{title}</h2>
+
+        {/* ✅ Hiển thị lỗi YouTube nếu có */}
+        {youtubeError && (
+          <div style={{
+            background: 'rgba(255,180,171,0.1)',
+            border: '1px solid rgba(255,180,171,0.2)',
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16
+          }}>
+            <p style={{ color: '#ffb4ab' }}>⚠️ {youtubeError}</p>
+            <a
+              href={`https://www.youtube.com/watch?v=${extractVideoId(videoUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#6C63FF', textDecoration: 'underline', display: 'inline-block', marginTop: 8 }}
+            >
+              📺 Xem trực tiếp trên YouTube
+            </a>
+          </div>
+        )}
+
+        <div
+          ref={containerRef}
+          style={{
+            position: "relative",
+            borderRadius: 16,
+            overflow: "hidden",
+            marginBottom: 24,
+            background: '#000',
+            aspectRatio: '16/9'
+          }}
+        />
+
+        {/* Progress bar (chỉ hiển thị, không ràng buộc) */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#C7C4D8", marginBottom: 4 }}>
+            <span>Watch progress</span>
+            <span>{Math.round(watchProgress)}%</span>
+          </div>
+          <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${watchProgress}%`,
+                height: "100%",
+                background: "#6C63FF",
+                transition: "width 0.3s"
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center" }}>
+          {!isCompletedState ? (
+            <button
+              onClick={handleComplete}
+              disabled={isSubmitting}
+              style={{
+                padding: "10px 32px",
+                borderRadius: 12,
+                border: "none",
+                background: isSubmitting ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg,#45f1c5,#00D4AA)",
+                color: isSubmitting ? "#47464f" : "#0F0F1A",
+                fontWeight: 700,
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                fontSize: 16,
+                transition: "all 0.2s",
+              }}
+            >
+              {isSubmitting ? "Đang xử lý..." : "✅ Complete Lesson"}
+            </button>
+          ) : (
+            <div style={{ color: "#45f1c5", fontSize: 16, fontWeight: 600 }}>
+              ✅ Lesson completed! +{xpReward} XP
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============ Render Video thường (non-YouTube) ============
+  // Load resume cho video thường
   useEffect(() => {
     const loadResume = async () => {
-      if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+      if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
       const data = await getResumeData(userId, courseId, moduleId, lessonId);
       if (data?.videoCurrentTime && videoRef.current) {
         videoRef.current.currentTime = data.videoCurrentTime;
@@ -79,24 +338,20 @@ export function VideoLesson({
       }
     };
     loadResume();
-  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+  }, [userId, courseId, moduleId, lessonId, isCompletedState]);
 
-  const saveCurrentTime = useCallback(async () => {
-    if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
-    if (videoRef.current && !isNaN(videoRef.current.currentTime)) {
-      await saveResumeData(userId, courseId, moduleId, lessonId, {
-        videoCurrentTime: videoRef.current.currentTime,
-      });
-    }
-  }, [userId, courseId, moduleId, lessonId, isCompleted]);
-
+  // Lưu resume cho video thường
   useEffect(() => {
-    if (!videoRef.current || isCompleted) return;
+    if (!videoRef.current || isCompletedState) return;
     const interval = setInterval(() => {
-      saveCurrentTime();
+      if (videoRef.current && !isNaN(videoRef.current.currentTime)) {
+        saveResumeData(userId, courseId, moduleId, lessonId, {
+          videoCurrentTime: videoRef.current.currentTime,
+        });
+      }
     }, 5000);
     return () => clearInterval(interval);
-  }, [saveCurrentTime, isCompleted]);
+  }, [userId, courseId, moduleId, lessonId, isCompletedState]);
 
   const handlePlayPause = () => {
     if (videoRef.current) {
@@ -135,7 +390,7 @@ export function VideoLesson({
 
   const addBookmark = () => {
     if (currentTime > 0 && !bookmarks.includes(currentTime)) {
-      setBookmarks([...bookmarks, currentTime].sort((a,b) => a-b));
+      setBookmarks([...bookmarks, currentTime].sort((a, b) => a - b));
     }
   };
 
@@ -148,35 +403,6 @@ export function VideoLesson({
     const s = Math.floor(sec % 60);
     return `${mins}:${s < 10 ? "0" : ""}${s}`;
   };
-
-  const canComplete = watchProgress >= 80 && !isCompleted;
-
-  if (isYouTube && embedUrl) {
-    return (
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-        <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 20 }}>{title}</h2>
-        <div style={{ position: "relative", borderRadius: 16, overflow: "hidden", marginBottom: 24 }}>
-          <div style={{ position: "relative", paddingBottom: "56.25%", height: 0 }}>
-            <iframe src={embedUrl} title={title} frameBorder="0" allowFullScreen
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }} />
-          </div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <LessonCompleteButton
-            userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
-            xpReward={xpReward} onComplete={onComplete} disabled={!canComplete}
-            isCompleted={isCompleted}
-            lessonType={lessonType}
-          />
-          {!isCompleted && watchProgress < 80 && (
-            <p style={{ fontSize: 12, color: "#FFB785", marginTop: 8 }}>
-              Watch at least 80% to unlock completion.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto" }}>
@@ -260,21 +486,33 @@ export function VideoLesson({
           <span>{Math.round(watchProgress)}%</span>
         </div>
         <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" }}>
-          <div style={{ width: `${watchProgress}%`, height: "100%", background: watchProgress >= 80 ? "#45f1c5" : "#6C63FF", transition: "width 0.3s" }} />
+          <div style={{ width: `${watchProgress}%`, height: "100%", background: "#6C63FF", transition: "width 0.3s" }} />
         </div>
       </div>
 
       <div style={{ textAlign: "center" }}>
-        <LessonCompleteButton
-          userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId}
-          xpReward={xpReward} onComplete={onComplete} disabled={!canComplete}
-          isCompleted={isCompleted}
-          lessonType={lessonType}
-        />
-        {!isCompleted && watchProgress < 80 && (
-          <p style={{ fontSize: 12, color: "#FFB785", marginTop: 8 }}>
-            🎯 Watch at least 80% to unlock completion.
-          </p>
+        {!isCompletedState ? (
+          <button
+            onClick={handleComplete}
+            disabled={isSubmitting}
+            style={{
+              padding: "10px 32px",
+              borderRadius: 12,
+              border: "none",
+              background: isSubmitting ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg,#45f1c5,#00D4AA)",
+              color: isSubmitting ? "#47464f" : "#0F0F1A",
+              fontWeight: 700,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              fontSize: 16,
+              transition: "all 0.2s",
+            }}
+          >
+            {isSubmitting ? "Đang xử lý..." : "✅ Complete Lesson"}
+          </button>
+        ) : (
+          <div style={{ color: "#45f1c5", fontSize: 16, fontWeight: 600 }}>
+            ✅ Lesson completed! +{xpReward} XP
+          </div>
         )}
       </div>
     </div>

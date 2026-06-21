@@ -4,7 +4,7 @@ import { useCollection } from "../../hooks/useFirestore";
 import { orderBy, limit } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
 import { Trophy, Zap, Flame, Search, Loader } from "lucide-react";
-import { checkAndUnlockAchievements } from "../../services/achievementService";
+import { checkAndUnlockAchievementsLegacy } from "../../services/achievementService";
 
 interface LeaderboardUser {
   uid: string;
@@ -80,7 +80,7 @@ export default function LeaderboardPage() {
     const thresholds = [1, 3, 10];
     for (const th of thresholds) {
       if (rank <= th) {
-        checkAndUnlockAchievements(currentUser.uid, "leaderboard_rank", th, { leaderboardRank: rank });
+        checkAndUnlockAchievementsLegacy(currentUser.uid, "leaderboard_rank", th, { leaderboardRank: rank });
         hasTriggeredRank.current = true;
         break;
       }

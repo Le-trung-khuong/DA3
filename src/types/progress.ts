@@ -1,8 +1,4 @@
-/**
- * src/types/progress.ts
- * Định nghĩa kiểu dữ liệu cho progress tracking + resume learning
- */
-
+// src/types/progress.ts
 export type LessonStatus = "not_started" | "completed";
 
 export interface FlashcardProgress {
@@ -24,6 +20,8 @@ export interface ResumeData {
   quizAnswers?: { [questionId: string]: number };
   quizCurrentIndex?: number;
   quizTimeLeft?: number;
+  // Quiz retry flag (thêm mới)
+  quizRetry?: boolean;
 }
 
 export interface Progress {
@@ -35,7 +33,7 @@ export interface Progress {
   completedAt?: Date;
   quizScore?: number;         // cho quiz lesson
   flashcardProgress?: FlashcardProgress;
-  resumeData?: ResumeData;    // ✅ thêm mới
+  resumeData?: ResumeData;
   updatedAt: Date;
 }
 

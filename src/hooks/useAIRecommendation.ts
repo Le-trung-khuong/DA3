@@ -1,8 +1,10 @@
+// src/hooks/useAIRecommendation.ts
 import { useState, useEffect } from 'react';
-import { recommendNextLesson } from '../services/aiRecommendationService';
+import { recommendNextLesson, RecommendationResult } from '../services/aiRecommendationService';
 
 export function useAIRecommendation(userId: string | undefined, courseId: string | undefined) {
   const [lessonId, setLessonId] = useState<string | null>(null);
+  const [moduleId, setModuleId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -12,13 +14,14 @@ export function useAIRecommendation(userId: string | undefined, courseId: string
       return;
     }
     recommendNextLesson(userId, courseId)
-      .then((result: { lessonId: string | null; reason: string }) => {
+      .then((result: RecommendationResult) => {
         setLessonId(result.lessonId);
+        setModuleId(result.moduleId); // ✅ lấy moduleId
         setReason(result.reason);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, [userId, courseId]);
 
-  return { lessonId, reason, loading };
+  return { lessonId, moduleId, reason, loading };
 }

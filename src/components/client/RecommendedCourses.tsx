@@ -1,31 +1,149 @@
+// src/components/client/RecommendedCourses.tsx
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { useAIRecommendation } from '../../hooks/useAIRecommendation';
 import { getRecommendedCourses, RecommendedCourse } from '../../services/recommendationService';
-import { Star, Users, ArrowRight, TrendingUp } from 'lucide-react';
+import { Star, Users, ArrowRight, TrendingUp, Sparkles, BookOpen, ChevronRight } from 'lucide-react';
 
-const RecommendedCourses: React.FC = () => {
+interface RecommendedCoursesProps {
+  courseId?: string; // Nếu có, hiển thị gợi ý bài học tiếp theo cho khóa học đó
+}
+
+const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => {
   const navigate = useNavigate();
-  const [courses, setCourses] = useState<RecommendedCourse[]>([]);
+  const { currentUser } = useAuth();
+  const userId = currentUser?.uid;
 
+  const [courses, setCourses] = useState<RecommendedCourse[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+
+  // Gợi ý bài học tiếp theo (nếu có courseId)
+  const { lessonId, moduleId, reason, loading: recommendLoading } = useAIRecommendation(userId, courseId);
+
+  // Lấy danh sách khóa học gợi ý (top rated)
   useEffect(() => {
-    getRecommendedCourses(5).then(setCourses);
+    getRecommendedCourses(5)
+      .then(setCourses)
+      .catch(console.error)
+      .finally(() => setLoadingCourses(false));
   }, []);
 
-  return (
-    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <TrendingUp size={22} color="#6C63FF" /> Khóa học gợi ý
-        </h2>
-        <span style={{ fontSize: 13, color: '#6C63FF' }}>Top đánh giá</span>
-      </div>
+  const handleContinueLesson = () => {
+    if (lessonId && moduleId && courseId) {
+      navigate(`/learn/${courseId}/${moduleId}/${lessonId}`);
+    }
+  };
 
-      {courses.length === 0 && (
+  // ============ Render gợi ý bài học tiếp theo ============
+  const renderLessonRecommendation = () => {
+    if (!courseId) return null;
+
+    if (recommendLoading) {
+      return (
+        <div style={{ 
+          background: 'rgba(108,99,255,0.05)', 
+          borderRadius: 12, 
+          padding: 16, 
+          marginBottom: 16,
+          border: '1px solid rgba(108,99,255,0.1)'
+        }}>
+          <p style={{ color: '#C7C4D8', fontSize: 13 }}>Đang tìm bài học tiếp theo...</p>
+        </div>
+      );
+    }
+
+    if (!lessonId || !moduleId) {
+      return (
+        <div style={{ 
+          background: 'rgba(69,241,197,0.05)', 
+          borderRadius: 12, 
+          padding: 16, 
+          marginBottom: 16,
+          border: '1px solid rgba(69,241,197,0.15)'
+        }}>
+          <p style={{ color: '#45f1c5', fontSize: 14, fontWeight: 600 }}>🎉 {reason}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          background: 'rgba(108,99,255,0.08)',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+          border: '1px solid rgba(108,99,255,0.2)',
+          cursor: 'pointer',
+          transition: 'all 0.2s',
+        }}
+        onClick={handleContinueLesson}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(108,99,255,0.15)';
+          e.currentTarget.style.transform = 'translateX(4px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(108,99,255,0.08)';
+          e.currentTarget.style.transform = 'translateX(0)';
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ 
+              width: 36, 
+              height: 36, 
+              borderRadius: '50%', 
+              background: 'rgba(108,99,255,0.2)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}>
+              <Sparkles size={18} color="#6C63FF" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#6C63FF' }}>
+                  {reason === 'Bài học mới' ? '📖 Bài học mới' : '🔄 Ôn tập'}
+                </span>
+                <span style={{ 
+                  fontSize: 10, 
+                  color: '#C7C4D8', 
+                  background: 'rgba(255,255,255,0.05)', 
+                  padding: '2px 8px', 
+                  borderRadius: 12 
+                }}>
+                  Tiếp theo
+                </span>
+              </div>
+              <span style={{ fontSize: 12, color: '#C7C4D8' }}>{reason}</span>
+            </div>
+          </div>
+          <ChevronRight size={18} color="#6C63FF" />
+        </div>
+      </div>
+    );
+  };
+
+  // ============ Render danh sách khóa học gợi ý ============
+  const renderCourseRecommendations = () => {
+    if (loadingCourses) {
+      return (
+        <div style={{ textAlign: 'center', padding: '20px 0', color: '#C7C4D8' }}>
+          <p>Đang tải...</p>
+        </div>
+      );
+    }
+
+    if (courses.length === 0) {
+      return (
         <div style={{ textAlign: 'center', padding: '20px 0', color: '#C7C4D8' }}>
           <p>Chưa có đánh giá nào để gợi ý.</p>
         </div>
-      )}
+      );
+    }
 
+    return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {courses.map((c, idx) => (
           <div
@@ -106,6 +224,23 @@ const RecommendedCourses: React.FC = () => {
           </div>
         ))}
       </div>
+    );
+  };
+
+  return (
+    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+      {/* ✅ Gợi ý bài học tiếp theo (nếu có courseId) */}
+      {renderLessonRecommendation()}
+
+      {/* Danh sách khóa học gợi ý */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <TrendingUp size={22} color="#6C63FF" /> Khóa học gợi ý
+        </h2>
+        <span style={{ fontSize: 13, color: '#6C63FF' }}>Top đánh giá</span>
+      </div>
+
+      {renderCourseRecommendations()}
 
       {courses.length > 0 && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.06)' }}>

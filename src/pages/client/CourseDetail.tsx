@@ -114,8 +114,8 @@ export default function CourseDetail() {
   );
   const { progress, isLessonCompleted, getQuizScore } = useProgress(currentUser?.uid, courseId);
 
-  // AI Recommendation
-  const { lessonId: recommendedLessonId, reason, loading: recommendationLoading } = useAIRecommendation(
+  // ✅ AI Recommendation - lấy cả moduleId
+  const { lessonId: recommendedLessonId, moduleId: recommendedModuleId, reason, loading: recommendationLoading } = useAIRecommendation(
     currentUser?.uid,
     courseId
   );
@@ -311,7 +311,7 @@ export default function CourseDetail() {
                 <Layers size={16} /> {totalLessons} lessons
               </span>
             </div>
-            <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {!isEnrolled ? (
                 course.price === 0 ? (
                   <button
@@ -390,14 +390,41 @@ export default function CourseDetail() {
         </div>
       </div>
 
-      {/* AI Recommendation */}
-      {recommendedLessonId && !courseLoading && (
-        <div style={{ marginTop: 24, marginBottom: 24, padding: 16, background: 'rgba(108,99,255,0.1)', borderRadius: 12, border: '1px solid rgba(108,99,255,0.2)' }}>
-          <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#c4c0ff' }}>🎯 Gợi ý bài học tiếp theo</h4>
-          <p style={{ color: '#C7C4D8' }}>Lý do: {reason}</p>
-          <button onClick={() => navigate(`/learn/${courseId}/${recommendedLessonId}`)} style={{ marginTop: 8, padding: '6px 16px', borderRadius: 8, background: 'linear-gradient(135deg,#6C63FF,#9B59B6)', border: 'none', color: '#fff', cursor: 'pointer' }}>
-            Bắt đầu ngay
-          </button>
+      {/* ✅ AI Recommendation - Sửa link dùng cả moduleId */}
+      {recommendedLessonId && recommendedModuleId && !courseLoading && !recommendationLoading && (
+        <div style={{ 
+          marginTop: 24, 
+          marginBottom: 24, 
+          padding: 16, 
+          background: 'rgba(108,99,255,0.1)', 
+          borderRadius: 12, 
+          border: '1px solid rgba(108,99,255,0.2)' 
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#c4c0ff', margin: 0 }}>
+                🎯 Gợi ý bài học tiếp theo
+              </h4>
+              <p style={{ color: '#C7C4D8', margin: '4px 0 0 0', fontSize: 14 }}>
+                Lý do: {reason}
+              </p>
+            </div>
+            <button 
+              onClick={() => navigate(`/learn/${courseId}/${recommendedModuleId}/${recommendedLessonId}`)}
+              style={{ 
+                padding: '8px 20px', 
+                borderRadius: 8, 
+                background: 'linear-gradient(135deg,#6C63FF,#9B59B6)', 
+                border: 'none', 
+                color: '#fff', 
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 14,
+              }}
+            >
+              Bắt đầu ngay →
+            </button>
+          </div>
         </div>
       )}
 

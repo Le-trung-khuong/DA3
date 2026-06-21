@@ -1,7 +1,10 @@
+// src/components/client/DailyGoals.tsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { getDailyProgress, DAILY_TASKS } from '../../services/dailyGoalService';
+import { DAILY_TASKS } from '../../services/dailyGoalService';
 import { CheckCircle, Target } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../../utils/config';
 
 const DailyGoals: React.FC = () => {
   const { currentUser } = useAuth();
@@ -10,13 +13,29 @@ const DailyGoals: React.FC = () => {
   const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    if (!currentUser) return;
-    getDailyProgress(currentUser.uid, today)
-      .then(data => {
-        setCompletedIds(data?.completedTasks || []);
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    const ref = doc(db, 'dailyProgress', `${currentUser.uid}_${today}`);
+    const unsubscribe = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          setCompletedIds(snap.data().completedTasks || []);
+        } else {
+          setCompletedIds([]);
+        }
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      },
+      (err) => {
+        console.error('DailyGoals real-time error:', err);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
   }, [currentUser, today]);
 
   if (loading) return <div style={{ color: '#C7C4D8' }}>Đang tải...</div>;

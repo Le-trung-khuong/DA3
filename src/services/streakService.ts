@@ -1,7 +1,7 @@
 // src/services/streakService.ts
 import { doc, updateDoc, getDoc, serverTimestamp, runTransaction } from "firebase/firestore";
 import { db } from "../utils/config";
-import { checkAndUnlockAchievements } from "./achievementService";
+import { checkAndUnlockAchievementsLegacy } from "./achievementService";
 
 export async function updateUserStreak(userId: string, activityDate: Date = new Date()): Promise<void> {
   const userRef = doc(db, "users", userId);
@@ -51,7 +51,13 @@ export async function updateUserStreak(userId: string, activityDate: Date = new 
   try {
     const userSnapAfter = await getDoc(userRef);
     const newStreak = userSnapAfter.data()?.currentStreak || 0;
-    await checkAndUnlockAchievements(userId, "streak_days", newStreak, { currentStreak: newStreak });
+    // Kiểm tra các mốc streak
+    const milestones = [7, 30, 60, 100];
+    for (const milestone of milestones) {
+      if (newStreak === milestone) {
+        await checkAndUnlockAchievementsLegacy(userId, "streak_days", milestone, { currentStreak: newStreak });
+      }
+    }
   } catch (err) {
     console.error("Failed to check streak achievement:", err);
   }

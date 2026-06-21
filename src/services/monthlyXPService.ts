@@ -10,10 +10,12 @@ import {
   Timestamp,
   limit,
   orderBy,
+  setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 
 /**
- * Lấy tổng XP của user trong tháng hiện tại (chỉ dùng cho cá nhân, vẫn ổn)
+ * Lấy tổng XP của user trong tháng hiện tại
  */
 export async function getUserMonthlyXP(userId: string): Promise<number> {
   const now = new Date();
@@ -36,8 +38,7 @@ export async function getUserMonthlyXP(userId: string): Promise<number> {
 }
 
 /**
- * Lấy leaderboard tháng này sử dụng cache collection (được cập nhật bởi Cloud Function)
- * Nếu cache chưa có, fallback an toàn với limit(200) user và cảnh báo.
+ * Lấy leaderboard tháng này sử dụng cache collection
  */
 export async function getAllUsersMonthlyXP(limitCount = 100): Promise<{ userId: string; monthlyXP: number; displayName: string; email: string }[]> {
   const now = new Date();
@@ -45,18 +46,15 @@ export async function getAllUsersMonthlyXP(limitCount = 100): Promise<{ userId: 
   const cacheDocId = `monthly_${yearMonth}`;
   const cacheRef = doc(db, "leaderboard_cache", cacheDocId);
 
-  // 1. Thử đọc cache
   const cacheSnap = await getDoc(cacheRef);
   if (cacheSnap.exists()) {
     const data = cacheSnap.data();
-    // Kiểm tra cache còn hiệu lực (ví dụ expiresAt > now)
     if (data.expiresAt && data.expiresAt.toDate() > new Date()) {
       const users = data.users || [];
       return users.slice(0, limitCount);
     }
   }
 
-  // 2. Cache không có hoặc hết hạn → fallback an toàn (chỉ lấy 200 user gần nhất)
   console.warn("[MonthlyXP] Cache miss, using fallback query (limited to 200 users)");
   const usersSnap = await getDocs(query(collection(db, "users"), limit(200)));
   const users = usersSnap.docs.map((doc) => ({
@@ -65,7 +63,6 @@ export async function getAllUsersMonthlyXP(limitCount = 100): Promise<{ userId: 
     email: doc.data().email || "",
   }));
 
-  // Lấy xp_logs trong tháng nhưng giới hạn số lượng log (chỉ lấy gần nhất)
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   const logsQuery = query(
@@ -73,7 +70,7 @@ export async function getAllUsersMonthlyXP(limitCount = 100): Promise<{ userId: 
     where("timestamp", ">=", Timestamp.fromDate(startOfMonth)),
     where("timestamp", "<=", Timestamp.fromDate(endOfMonth)),
     orderBy("timestamp", "desc"),
-    limit(5000) // giới hạn an toàn
+    limit(5000)
   );
   const logsSnap = await getDocs(logsQuery);
   const monthlyXPMap = new Map<string, number>();
@@ -92,15 +89,11 @@ export async function getAllUsersMonthlyXP(limitCount = 100): Promise<{ userId: 
     .sort((a, b) => b.monthlyXP - a.monthlyXP)
     .slice(0, limitCount);
 
-  // Ghi cache tạm (thời gian ngắn) để đỡ phải fallback liên tục
   await setDoc(cacheRef, {
     users: result,
-    expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)), // 5 phút
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
     updatedAt: serverTimestamp(),
   }).catch((e) => console.error("Failed to write cache:", e));
 
   return result;
 }
-
-// Helper để setDoc (thêm import)
-import { setDoc, serverTimestamp } from "firebase/firestore";

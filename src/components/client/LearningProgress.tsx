@@ -1,17 +1,88 @@
-import React, { useEffect, useState } from 'react';
+// src/components/client/LearningProgress.tsx
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { getUserOverallProgress, CourseProgress } from '../../services/progressService';
 import { BookOpen } from 'lucide-react';
+import { onSnapshot, collection, query, where } from 'firebase/firestore';
+import { db } from '../../utils/config';
 
 const LearningProgress: React.FC = () => {
   const { currentUser } = useAuth();
   const [progress, setProgress] = useState<CourseProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (currentUser) {
-      getUserOverallProgress(currentUser.uid).then(setProgress);
+  // Hàm fetch dữ liệu với debounce
+  const fetchProgress = useCallback(async (force = false) => {
+    if (!currentUser) {
+      setProgress([]);
+      setLoading(false);
+      return;
+    }
+
+    // Debounce: nếu không force, đợi 500ms trước khi fetch thực sự
+    if (!force) {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => fetchProgress(true), 500);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const data = await getUserOverallProgress(currentUser.uid);
+      setProgress(data);
+    } catch (err) {
+      console.error('Failed to load learning progress:', err);
+    } finally {
+      setLoading(false);
+      debounceTimerRef.current = null;
     }
   }, [currentUser]);
+
+  // Initial fetch và real-time listener
+  useEffect(() => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    // Load lần đầu
+    fetchProgress(true);
+
+    // Real-time listener
+    const q = query(
+      collection(db, 'progress'),
+      where('userId', '==', currentUser.uid),
+      where('status', '==', 'completed')
+    );
+    const unsubscribe = onSnapshot(q, () => {
+      // Debounce fetch khi có thay đổi
+      fetchProgress();
+    }, (err) => {
+      console.error('LearningProgress real-time error:', err);
+    });
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      unsubscribe();
+    };
+  }, [currentUser, fetchProgress]);
+
+  if (loading) {
+    return (
+      <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', margin: 0, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BookOpen size={22} color="#6C63FF" /> Tiến độ học tập
+        </h2>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 100 }}>
+          <div style={{ width: 30, height: 30, borderRadius: '50%', border: '3px solid rgba(108,99,255,0.2)', borderTopColor: '#6C63FF', animation: 'spin 0.8s linear infinite' }} />
+        </div>
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
 
   const totalPercent = progress.length > 0
     ? Math.round(progress.reduce((sum, p) => sum + p.percent, 0) / progress.length)

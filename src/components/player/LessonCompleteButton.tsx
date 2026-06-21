@@ -12,6 +12,7 @@ interface LessonCompleteButtonProps {
   onComplete?: () => void;
   disabled?: boolean;
   isCompleted?: boolean;
+  xpEarned?: number; // ✅ Field mới: XP đã được cộng (nếu có)
   lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
 }
 
@@ -24,13 +25,15 @@ export function LessonCompleteButton({
   onComplete,
   disabled = false,
   isCompleted = false,
+  xpEarned = 0, // ✅ Mặc định 0
   lessonType = 'lesson',
 }: LessonCompleteButtonProps) {
   const [loading, setLoading] = useState(false);
   const [localCompleted, setLocalCompleted] = useState(false);
   const loadingRef = useRef(false);
 
-  const showCompleted = isCompleted || localCompleted;
+  // ✅ Chỉ coi là hoàn thành nếu isCompleted === true VÀ đã có XP
+  const showCompleted = (isCompleted && xpEarned > 0) || localCompleted;
 
   const handleComplete = async () => {
     if (loadingRef.current || showCompleted || disabled) return;
@@ -54,7 +57,9 @@ export function LessonCompleteButton({
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#45f1c5" }}>
         <CheckCircle size={20} />
-        <span style={{ fontSize: 14, fontWeight: 600 }}>Completed! +{xpReward} XP</span>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>
+          Completed! +{xpEarned || xpReward} XP
+        </span>
       </div>
     );
   }
