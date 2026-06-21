@@ -54,7 +54,7 @@ export interface FlashcardProgress {
   lastActivityAt: Date;
 }
 
-// ============ QUIZ PROGRESS (FIX BUG #1) ============
+// ============ QUIZ PROGRESS ============
 export async function saveQuizAttempt(
   userId: string,
   courseId: string,
@@ -84,8 +84,6 @@ export async function saveQuizAttempt(
       lessonType: "quiz",
       quizScore: bestScore,
       quizAttempts: updatedAttempts,
-      // ✅ KHÔNG set status = "completed" ở đây
-      // ✅ Thêm flag để biết đã làm quiz
       quizCompleted: true,
       lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -94,7 +92,6 @@ export async function saveQuizAttempt(
     if (!existing.exists()) {
       updateData.createdAt = serverTimestamp();
       updateData.startedAt = serverTimestamp();
-      // ❌ KHÔNG set completedAt
     }
 
     transaction.set(progressRef, updateData, { merge: true });
@@ -115,7 +112,7 @@ export async function getBestQuizScore(
   return null;
 }
 
-// ============ FLASHCARD PROGRESS (FIX BUG #1) ============
+// ============ FLASHCARD PROGRESS ============
 export async function saveFlashcardProgress(
   userId: string,
   courseId: string,
@@ -143,7 +140,6 @@ export async function saveFlashcardProgress(
     },
     lastActivityAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    // ✅ Thêm flag thay vì set status = "completed"
     allMastered: allMastered,
   };
 
@@ -152,7 +148,6 @@ export async function saveFlashcardProgress(
     updateData.startedAt = serverTimestamp();
   }
 
-  // ✅ KHÔNG set status = "completed" ở đây
   updateData.status = "in_progress";
 
   await setDoc(progressRef, updateData, { merge: true });
@@ -216,7 +211,7 @@ export async function getResumeData(
   return null;
 }
 
-// ============ LESSON COMPLETION (FIX BUG #2, #3) ============
+// ============ LESSON COMPLETION (OPTIMIZED) ============
 export async function completeLesson(
   userId: string,
   courseId: string,
@@ -231,7 +226,7 @@ export async function completeLesson(
   const progressRef = doc(db, "progress", progressId);
   const userRef = doc(db, "users", userId);
 
-  // ✅ IDEMPOTENCY: Kiểm tra đã có XP chưa (tránh double XP)
+  // ✅ IDEMPOTENCY: Kiểm tra đã có XP chưa
   const existingSnap = await getDoc(progressRef);
   if (existingSnap.exists()) {
     const existingData = existingSnap.data();
@@ -248,6 +243,7 @@ export async function completeLesson(
     console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
   }
 
+  // ===== TRANSACTION (phải chờ) =====
   await runTransaction(db, async (transaction) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists()) {
@@ -257,7 +253,6 @@ export async function completeLesson(
     const progressSnap = await transaction.get(progressRef);
     const existingData = progressSnap.exists() ? progressSnap.data() : null;
 
-    // ✅ Double-check trong transaction
     if (existingData && existingData.xpEarned && existingData.xpEarned > 0) {
       console.log(`[completeLesson] Transaction: already has XP, skip.`);
       return;
@@ -288,84 +283,95 @@ export async function completeLesson(
     });
   });
 
-  // Post-commit side effects
-  await updateUserStreak(userId);
-  await addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete");
-  console.log(`[completeLesson] Success: +${finalXPReward} XP to user ${userId}`);
+  // ✅ Transaction đã hoàn tất – XP đã được ghi. UI sẽ cập nhật ngay qua onSnapshot.
+  console.log(`[completeLesson] Transaction committed, XP awarded.`);
 
-  // ✅ Hoàn thành nhiệm vụ hằng ngày
-  try {
-    await checkAndCompleteDailyTask(userId, lessonType);
-  } catch (err) {
-    console.error("Failed to complete daily task:", err);
-  }
+  // ===== SIDE EFFECTS (fire-and-forget) =====
+  // Chạy bất đồng bộ, không chặn luồng chính.
+  Promise.allSettled([
+    // 1. Cập nhật streak
+    updateUserStreak(userId).catch(err => console.error("Streak error:", err)),
 
-  // ✅ Kiểm tra chứng chỉ
-  try {
-    const courseRef = doc(db, "courses", courseId);
-    const courseSnap = await getDoc(courseRef);
-    if (courseSnap.exists()) {
-      const courseData = courseSnap.data();
-      const modules = courseData.modules || [];
-      const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
-      const courseTitle = courseData.title || "Untitled";
-      const userSnap = await getDoc(userRef);
-      const userName = userSnap.exists()
-        ? (userSnap.data().displayName || userSnap.data().name || "User")
-        : "User";
-      await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
-    }
-  } catch (certErr) {
-    console.error("Failed to check/generate certificate:", certErr);
-  }
+    // 2. Ghi log XP
+    addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(err => console.error("XPLog error:", err)),
 
-  // ✅ Kiểm tra thành tựu
-  try {
-    const userSnapAfter = await getDoc(userRef);
-    const userDataAfter = userSnapAfter.data() || {};
-    const completedLessonsQuery = query(
-      collection(db, "progress"),
-      where("userId", "==", userId),
-      where("status", "==", "completed")
-    );
-    const completedLessonsSnap = await getDocs(completedLessonsQuery);
-    const completedLessonsCount = completedLessonsSnap.size;
+    // 3. Daily mission
+    checkAndCompleteDailyTask(userId, lessonType).catch(err => console.error("DailyTask error:", err)),
 
-    const enrollQuery = query(
-      collection(db, "enrollments"),
-      where("userId", "==", userId),
-      where("isActive", "==", true)
-    );
-    const enrollSnap = await getDocs(enrollQuery);
-    const courseIds = enrollSnap.docs.map(d => d.data().courseId);
-    let completedCoursesCount = 0;
-    for (const cid of courseIds) {
-      const progressCount = await getDocs(query(
-        collection(db, "progress"),
-        where("userId", "==", userId),
-        where("courseId", "==", cid),
-        where("status", "==", "completed")
-      ));
-      const courseDoc = await getDoc(doc(db, "courses", cid));
-      const total = courseDoc.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
-      if (progressCount.size === total && total > 0) completedCoursesCount++;
-    }
+    // 4. Certificate
+    (async () => {
+      try {
+        const courseRef = doc(db, "courses", courseId);
+        const courseSnap = await getDoc(courseRef);
+        if (courseSnap.exists()) {
+          const courseData = courseSnap.data();
+          const modules = courseData.modules || [];
+          const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
+          const courseTitle = courseData.title || "Untitled";
+          const userSnap = await getDoc(userRef);
+          const userName = userSnap.exists()
+            ? (userSnap.data().displayName || userSnap.data().name || "User")
+            : "User";
+          await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
+        }
+      } catch (certErr) {
+        console.error("Certificate error:", certErr);
+      }
+    })(),
 
-    const eventData = {
-      totalXP: userDataAfter.totalXP || 0,
-      completedLessons: completedLessonsCount,
-      currentStreak: userDataAfter.currentStreak || 0,
-      completedCourses: completedCoursesCount,
-    };
-    await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
-    await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
-    await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);
-    await checkAndUnlockAchievementsLegacy(userId, "courses_completed", eventData.completedCourses, eventData);
-  } catch (achErr) {
-    console.error("Failed to check achievements:", achErr);
-  }
+    // 5. Achievements
+    (async () => {
+      try {
+        const userSnapAfter = await getDoc(userRef);
+        const userDataAfter = userSnapAfter.data() || {};
+        const completedLessonsQuery = query(
+          collection(db, "progress"),
+          where("userId", "==", userId),
+          where("status", "==", "completed")
+        );
+        const completedLessonsSnap = await getDocs(completedLessonsQuery);
+        const completedLessonsCount = completedLessonsSnap.size;
+
+        const enrollQuery = query(
+          collection(db, "enrollments"),
+          where("userId", "==", userId),
+          where("isActive", "==", true)
+        );
+        const enrollSnap = await getDocs(enrollQuery);
+        const courseIds = enrollSnap.docs.map(d => d.data().courseId);
+        let completedCoursesCount = 0;
+        for (const cid of courseIds) {
+          const progressCount = await getDocs(query(
+            collection(db, "progress"),
+            where("userId", "==", userId),
+            where("courseId", "==", cid),
+            where("status", "==", "completed")
+          ));
+          const courseDoc = await getDoc(doc(db, "courses", cid));
+          const total = courseDoc.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
+          if (progressCount.size === total && total > 0) completedCoursesCount++;
+        }
+
+        const eventData = {
+          totalXP: userDataAfter.totalXP || 0,
+          completedLessons: completedLessonsCount,
+          currentStreak: userDataAfter.currentStreak || 0,
+          completedCourses: completedCoursesCount,
+        };
+        await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
+        await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
+        await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);
+        await checkAndUnlockAchievementsLegacy(userId, "courses_completed", eventData.completedCourses, eventData);
+      } catch (achErr) {
+        console.error("Achievement error:", achErr);
+      }
+    })(),
+  ]).catch(err => console.error("Side effects error:", err));
+
+  console.log(`[completeLesson] Returning immediately (side effects running in background).`);
 }
 
+// ============ CÁC HÀM KHÁC (giữ nguyên) ============
 export async function isLessonCompleted(
   userId: string,
   courseId: string,
@@ -393,7 +399,6 @@ export async function getCourseProgress(
   })) as LessonProgress[];
 }
 
-// ============ BATCH UPDATE ============
 export async function batchUpdateProgress(
   updates: Array<{
     userId: string;
@@ -423,7 +428,6 @@ export async function batchUpdateProgress(
   await batch.commit();
 }
 
-// ============ XP LOGS ============
 export async function addXPLog(
   userId: string,
   amount: number,
@@ -441,7 +445,6 @@ export async function addXPLog(
   });
 }
 
-// ============ USER OVERALL PROGRESS (OPTIMIZED) ============
 export interface CourseProgress {
   courseId: string;
   courseName: string;

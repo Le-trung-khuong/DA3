@@ -1,19 +1,14 @@
+// src/components/certificate/CertificatePDF.tsx
 import React from "react";
-import { Document, Page, Text, View, StyleSheet, Font, Image } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
 
-// Đăng ký font (có thể dùng font có sẵn hoặc tải thêm)
-Font.register({
-  family: "Roboto",
-  fonts: [
-    { src: "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf" },
-    { src: "https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmEU9fBBc4.ttf", fontWeight: "bold" },
-  ],
-});
+// ✅ KHÔNG cần register font nếu dùng font mặc định
+// Font mặc định của react-pdf là Helvetica
 
 const styles = StyleSheet.create({
   page: {
     padding: 40,
-    fontFamily: "Roboto",
+    fontFamily: "Helvetica", // Sử dụng font có sẵn
     backgroundColor: "#fff",
     position: "relative",
   },
@@ -107,10 +102,8 @@ export function CertificatePDF({ userName, courseTitle, issuedAt, certificateId 
           <Text style={styles.date}>Issued on {formattedDate}</Text>
           <Text style={styles.certId}>Certificate ID: {certificateId}</Text>
         </View>
-        <Image
-          style={styles.seal}
-          src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Seal_of_the_United_States_Department_of_Education.svg/1200px-Seal_of_the_United_States_Department_of_Education.svg.png"
-        />
+        {/* Có thể bỏ hình seal nếu không cần, hoặc dùng base64 nội bộ */}
+        {/* <Image style={styles.seal} src="data:image/svg+xml;base64, ..." /> */}
       </Page>
     </Document>
   );

@@ -1,58 +1,57 @@
 // api/_lib/payos-utils.ts
 import { createHmac } from 'crypto';
 
+// ===== FOR ORDER CREATION =====
 export type PayOSSignatureData = {
   amount: number;
   cancelUrl: string;
   description: string;
-  orderCode: number | string;
+  orderCode: string | number;
   returnUrl: string;
 };
-
-function normalizeValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value.trim();
-  return String(value);
-}
-
-export function buildPayOSSignatureString(data: PayOSSignatureData): string {
-  const canonical = {
-    amount: normalizeValue(data.amount),
-    cancelUrl: normalizeValue(data.cancelUrl),
-    description: normalizeValue(data.description),
-    orderCode: normalizeValue(data.orderCode),
-    returnUrl: normalizeValue(data.returnUrl),
-  };
-
-  const queryString = Object.keys(canonical)
-    .sort()
-    .map((key) => `${key}=${canonical[key as keyof typeof canonical]}`)
-    .join('&');
-
-  return queryString;
-}
 
 export function generatePayOSSignature(
   data: PayOSSignatureData,
   checksumKey: string
 ): string {
-  const queryString = buildPayOSSignatureString(data);
-
-  console.log('===== PAYOS SIGNATURE INPUT =====');
-  console.log(JSON.stringify(data, null, 2));
+  // Theo PayOS: chỉ ký các field: amount, cancelUrl, description, orderCode, returnUrl
+  const sortedKeys = Object.keys(data).sort();
+  const queryString = sortedKeys
+    .map((key) => `${key}=${String(data[key as keyof PayOSSignatureData])}`)
+    .join('&');
 
   console.log('===== PAYOS SIGNATURE STRING =====');
   console.log(queryString);
 
-  console.log('===== PAYOS CHECKSUM KEY PRESENT =====');
-  console.log(Boolean(checksumKey));
+  return createHmac('sha256', checksumKey).update(queryString).digest('hex');
+}
 
-  const signature = createHmac('sha256', checksumKey)
-    .update(queryString)
-    .digest('hex');
+// ===== FOR WEBHOOK VERIFICATION =====
+// ✅ Copy chính xác từ PayOS SDK: createSignatureFromObj(data, checksumKey)
+export function createSignatureFromObj(
+  obj: Record<string, any>,
+  checksumKey: string
+): string {
+  // 1. Loại bỏ các field có giá trị null, undefined, empty string
+  const filteredObj: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined && value !== '') {
+      filteredObj[key] = value;
+    }
+  }
 
-  console.log('===== PAYOS SIGNATURE RESULT =====');
-  console.log(signature);
+  // 2. Sắp xếp keys alphabetically
+  const sortedKeys = Object.keys(filteredObj).sort();
 
-  return signature;
+  // 3. Tạo query string: key=value&key=value...
+  const queryString = sortedKeys
+    .map((key) => `${key}=${String(filteredObj[key])}`)
+    .join('&');
+
+  console.log('===== WEBHOOK SIGNATURE STRING =====');
+  console.log('Keys:', sortedKeys);
+  console.log('String:', queryString);
+
+  // 4. HMAC-SHA256
+  return createHmac('sha256', checksumKey).update(queryString).digest('hex');
 }

@@ -8,20 +8,20 @@ import {
   type PayOSSignatureData,
 } from './_lib/payos-utils.js';
 
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '.env.local' });
-
 const PAYOS_BASE_URL = process.env.PAYOS_BASE_URL || 'https://api-merchant.payos.vn';
 const PAYOS_CLIENT_ID = process.env.PAYOS_CLIENT_ID || '';
 const PAYOS_API_KEY = process.env.PAYOS_API_KEY || '';
 const PAYOS_CHECKSUM_KEY = process.env.PAYOS_CHECKSUM_KEY || '';
 const APP_URL = process.env.APP_URL || 'http://localhost:5173';
 
-function maskSecret(value: string, keep = 4): string {
-  if (!value) return '(missing)';
-  if (value.length <= keep * 2) return `${value.slice(0, 2)}***`;
-  return `${value.slice(0, keep)}...${value.slice(-keep)}`;
+// ✅ Fix lỗi TypeScript: khai báo kiểu rõ ràng
+const MISSING_ENV: string[] = [];
+if (!PAYOS_CLIENT_ID) MISSING_ENV.push('PAYOS_CLIENT_ID');
+if (!PAYOS_API_KEY) MISSING_ENV.push('PAYOS_API_KEY');
+if (!PAYOS_CHECKSUM_KEY) MISSING_ENV.push('PAYOS_CHECKSUM_KEY');
+
+if (MISSING_ENV.length > 0) {
+  console.error('❌ Missing environment variables:', MISSING_ENV.join(', '));
 }
 
 function logAxiosError(error: any) {
@@ -36,9 +36,16 @@ function logAxiosError(error: any) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  console.log('===== PAYOS CREATE ORDER START =====');
+  console.log('===== CREATE PAYOS ORDER START =====');
   console.log('method:', req.method);
   console.log('body:', JSON.stringify(req.body ?? {}, null, 2));
+
+  if (MISSING_ENV.length > 0) {
+    return res.status(500).json({
+      error: 'Server configuration error: missing PayOS credentials',
+      missing: MISSING_ENV,
+    });
+  }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -57,31 +64,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!courseDoc.exists) {
       return res.status(404).json({ error: 'Course not found' });
     }
-
     const course = courseDoc.data()!;
     const courseName = String(course.title || '').trim();
     const amount = Number(course.price);
 
-    if (!courseName) {
-      return res.status(400).json({ error: 'Invalid course title' });
-    }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ error: 'Invalid course price' });
-    }
+    if (!courseName) return res.status(400).json({ error: 'Invalid course title' });
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid course price' });
 
     const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
+    if (!userDoc.exists) return res.status(404).json({ error: 'User not found' });
     const user = userDoc.data()!;
-    const userName = String(user.name || 'User').trim();
+    const userName = String(user.name || user.displayName || 'User').trim();
     const userEmail = String(user.email || '').trim();
 
-    // ✅ Fix: orderCode = timestamp + random suffix để tránh collision
-    const timestamp = Date.now();
+    // ✅ FIX: Dùng let thay vì const để có thể gán lại
+    let orderCode: number;
+
+    // ✅ Tạo orderCode trong giới hạn an toàn
+    const baseTimestamp = Date.now() - 1704067200000; // ~ 1.7 tỷ
     const randomSuffix = Math.floor(Math.random() * 10000);
-    const orderCode = parseInt(`${timestamp}${String(randomSuffix).padStart(4, '0')}`);
+    const tempOrderCode = parseInt(`${baseTimestamp}${String(randomSuffix).padStart(4, '0')}`);
+
+    // ✅ Đảm bảo orderCode không vượt quá giới hạn
+    const MAX_ORDER_CODE = 9007199254740991;
+    if (tempOrderCode > MAX_ORDER_CODE) {
+      // Fallback: tạo orderCode ngẫu nhiên an toàn
+      orderCode = Math.floor(Math.random() * 9000000000000000) + 1000000000000000;
+      console.warn(`OrderCode ${tempOrderCode} exceeds limit, using fallback: ${orderCode}`);
+    } else {
+      orderCode = tempOrderCode;
+    }
 
     transactionId = String(orderCode);
     const transactionRef = db.collection('transactions').doc(transactionId);
@@ -129,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       amount,
       cancelUrl,
       description: `KH${orderCode}`,
-      orderCode,
+      orderCode: String(orderCode),
       returnUrl,
     };
 
