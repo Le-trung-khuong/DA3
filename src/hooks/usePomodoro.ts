@@ -1,15 +1,14 @@
-// src/hooks/usePomodoro.ts
 import { useReducer, useEffect, useRef, useCallback, useState } from 'react';
-import { 
-  PomodoroState, 
-  PomodoroAction, 
-  PomodoroConfig, 
+import {
+  PomodoroState,
+  PomodoroAction,
+  PomodoroConfig,
   PomodoroStatus,
   FocusScoreResult,
   AchievementDef,
-  PomodoroSettings
+  PomodoroSettings,
 } from '../types/pomodoro';
-import { 
+import {
   createPomodoroSession,
   updatePomodoroSession,
   completePomodoroSession,
@@ -17,11 +16,12 @@ import {
   calculateFocusScore,
   calculateXp,
   updateDailyAnalytics,
-  getAdaptiveDuration
+  getAdaptiveDuration,
 } from '../services/pomodoroService';
 import { checkAndUnlockAchievements } from '../services/achievementService';
 import { usePomodoroSettings } from './usePomodoroSettings';
 
+// ---------- Constants ----------
 const DEFAULT_CONFIG: PomodoroConfig = {
   workDuration: 25,
   shortBreakDuration: 5,
@@ -32,6 +32,8 @@ const DEFAULT_CONFIG: PomodoroConfig = {
   soundEnabled: true,
   notificationEnabled: true,
 };
+
+const STORAGE_KEY_PREFIX = 'pomodoro_state_';
 
 const getInitialState = (config: PomodoroConfig): PomodoroState => ({
   status: 'idle',
@@ -50,13 +52,108 @@ const getInitialState = (config: PomodoroConfig): PomodoroState => ({
   earlyCancelCount: 0,
 });
 
+// ---------- Web Audio API – tạo âm thanh không cần file ----------
+let audioContext: AudioContext | null = null;
+
+const getAudioContext = (): AudioContext => {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  return audioContext;
+};
+
+const playBeep = (frequency: number, duration: number, count: number = 1, gap: number = 150) => {
+  if (!audioContext) {
+    audioContext = getAudioContext();
+  }
+  // Resume context nếu bị suspend (do autoplay policy)
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+  if (audioContext.state !== 'running') return;
+
+  const playSingle = () => {
+    const oscillator = audioContext!.createOscillator();
+    const gainNode = audioContext!.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext!.destination);
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+    gainNode.gain.setValueAtTime(0.3, audioContext!.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext!.currentTime + duration / 1000);
+    oscillator.start();
+    oscillator.stop(audioContext!.currentTime + duration / 1000);
+  };
+
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => playSingle(), i * (duration + gap));
+  }
+};
+
+// ---------- Build config ----------
+const buildConfigFromSettings = (settings: PomodoroSettings): PomodoroConfig => ({
+  workDuration: settings.workDuration,
+  shortBreakDuration: settings.shortBreakDuration,
+  longBreakDuration: settings.longBreakDuration,
+  cyclesBeforeLongBreak: settings.cyclesBeforeLongBreak,
+  autoStartNext: settings.autoStartNextSession || false,
+  autoStartBreak: settings.autoStartBreak || false,
+  soundEnabled: true,
+  notificationEnabled: true,
+});
+
+// ---------- Storage ----------
+const saveStateToStorage = (userId: string, state: PomodoroState) => {
+  if (!userId) return;
+  const shouldSave = ['working', 'shortBreak', 'longBreak', 'paused'].includes(state.status);
+  if (!shouldSave) {
+    localStorage.removeItem(STORAGE_KEY_PREFIX + userId);
+    return;
+  }
+  try {
+    const data = {
+      ...state,
+      startTime: null,
+      isRunning: false,
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY_PREFIX + userId, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+};
+
+const loadStateFromStorage = (userId: string): (PomodoroState & { updatedAt?: number }) | null => {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PREFIX + userId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.status || !parsed.config) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+// ---------- Reducer ----------
 function pomodoroReducer(state: PomodoroState, action: PomodoroAction): PomodoroState {
   const { config } = state;
 
   switch (action.type) {
+    case 'RESTORE_STATE': {
+      const saved = action.payload;
+      return {
+        ...saved,
+        config: state.config,
+        startTime: saved.startTime ?? null,
+        isRunning: saved.isRunning ?? false,
+        timeLeft: Math.min(saved.timeLeft, saved.totalSeconds),
+      };
+    }
+
     case 'UPDATE_CONFIG': {
       const newConfig = action.payload;
-      // Nếu đang idle hoặc completed, cập nhật timeLeft theo config mới
       if (state.status === 'idle' || state.status === 'completed') {
         return {
           ...state,
@@ -65,18 +162,10 @@ function pomodoroReducer(state: PomodoroState, action: PomodoroAction): Pomodoro
           totalSeconds: newConfig.workDuration * 60,
         };
       }
-      // Nếu đang paused, cập nhật config nhưng giữ timeLeft hiện tại
       if (state.status === 'paused') {
-        return {
-          ...state,
-          config: newConfig,
-        };
+        return { ...state, config: newConfig };
       }
-      // Nếu đang chạy, chỉ cập nhật config (không reset timer)
-      return {
-        ...state,
-        config: newConfig,
-      };
+      return { ...state, config: newConfig };
     }
 
     case 'START': {
@@ -98,11 +187,11 @@ function pomodoroReducer(state: PomodoroState, action: PomodoroAction): Pomodoro
     }
 
     case 'PAUSE': {
-      if (state.status === 'working' || state.status === 'shortBreak' || state.status === 'longBreak') {
-        return { 
-          ...state, 
-          status: 'paused', 
-          isRunning: false, 
+      if (['working', 'shortBreak', 'longBreak'].includes(state.status)) {
+        return {
+          ...state,
+          status: 'paused',
+          isRunning: false,
           startTime: null,
           pauseCount: state.pauseCount + 1,
         };
@@ -112,20 +201,14 @@ function pomodoroReducer(state: PomodoroState, action: PomodoroAction): Pomodoro
 
     case 'RESUME': {
       if (state.status === 'paused') {
-        // Xác định status trước đó dựa trên totalSeconds
         let previousStatus: PomodoroStatus = 'working';
-        const workDuration = state.config.workDuration * 60;
-        const shortBreakDuration = state.config.shortBreakDuration * 60;
-        const longBreakDuration = state.config.longBreakDuration * 60;
-        
-        if (state.totalSeconds === workDuration) {
-          previousStatus = 'working';
-        } else if (state.totalSeconds === shortBreakDuration) {
-          previousStatus = 'shortBreak';
-        } else if (state.totalSeconds === longBreakDuration) {
-          previousStatus = 'longBreak';
-        }
-        
+        const w = state.config.workDuration * 60;
+        const s = state.config.shortBreakDuration * 60;
+        const l = state.config.longBreakDuration * 60;
+        if (state.totalSeconds === w) previousStatus = 'working';
+        else if (state.totalSeconds === s) previousStatus = 'shortBreak';
+        else if (state.totalSeconds === l) previousStatus = 'longBreak';
+
         return {
           ...state,
           status: previousStatus,
@@ -191,7 +274,7 @@ function pomodoroReducer(state: PomodoroState, action: PomodoroAction): Pomodoro
           elapsed: 0,
         };
       } else if (state.status === 'longBreak') {
-        // Long break kết thúc -> hoàn thành chu kỳ, quay về idle
+        // Long break kết thúc → chuỗi hoàn thành, về idle
         return {
           ...getInitialState(config),
           totalCycles: state.totalCycles,
@@ -218,23 +301,12 @@ function pomodoroReducer(state: PomodoroState, action: PomodoroAction): Pomodoro
   }
 }
 
-// Hàm build config từ settings
-const buildConfigFromSettings = (settings: PomodoroSettings): PomodoroConfig => ({
-  workDuration: settings.workDuration,
-  shortBreakDuration: settings.shortBreakDuration,
-  longBreakDuration: settings.longBreakDuration,
-  cyclesBeforeLongBreak: settings.cyclesBeforeLongBreak,
-  autoStartNext: settings.autoStartNextSession || false,
-  autoStartBreak: settings.autoStartBreak || false,
-  soundEnabled: true,
-  notificationEnabled: true,
-});
-
+// ---------- Hook ----------
 export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
-  const { settings, loading: settingsLoading } = usePomodoroSettings();
+  const { settings, loading: settingsLoading, reload: reloadSettings } = usePomodoroSettings();
   const userId = useRef<string | null>(null);
-  
-  // Khởi tạo config từ settings hoặc DEFAULT
+
+  // Khởi tạo config mới nhất
   const [config, setConfig] = useState<PomodoroConfig>(() => {
     if (settings && !settingsLoading) {
       return buildConfigFromSettings(settings);
@@ -242,15 +314,23 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
     return { ...DEFAULT_CONFIG, ...initialConfig };
   });
 
-  // State của timer
+  // Khởi tạo reducer với state ban đầu
   const [state, dispatch] = useReducer(pomodoroReducer, config, getInitialState);
-  
-  // Các ref và state khác
+
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusResult, setFocusResult] = useState<FocusScoreResult | null>(null);
   const [sessionCompleted, setSessionCompleted] = useState(false);
   const [newAchievements, setNewAchievements] = useState<AchievementDef[]>([]);
   const [showAchievement, setShowAchievement] = useState(false);
+
+  // ---------- Lắng nghe sự kiện settings ----------
+  useEffect(() => {
+    const handleSettingsUpdate = () => {
+      reloadSettings();
+    };
+    window.addEventListener('pomodoro-settings-updated', handleSettingsUpdate);
+    return () => window.removeEventListener('pomodoro-settings-updated', handleSettingsUpdate);
+  }, [reloadSettings]);
 
   // Cập nhật config khi settings thay đổi
   useEffect(() => {
@@ -261,10 +341,81 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
     }
   }, [settings, settingsLoading]);
 
+  // ---------- Lưu / khôi phục state từ localStorage ----------
+  const restoreState = useCallback((uid: string) => {
+    const saved = loadStateFromStorage(uid);
+    if (saved) {
+      const { updatedAt, ...stateData } = saved;
+      let newState = { ...stateData, config: config };
+
+      if (updatedAt) {
+        const elapsedSeconds = Math.floor((Date.now() - updatedAt) / 1000);
+        let newTimeLeft = Math.max(0, newState.timeLeft - elapsedSeconds);
+        newState.timeLeft = newTimeLeft;
+        newState.elapsed = newState.totalSeconds - newTimeLeft;
+
+        if (newTimeLeft > 0 && ['working', 'shortBreak', 'longBreak'].includes(newState.status)) {
+          newState.isRunning = true;
+          newState.startTime = Date.now();
+        } else if (newTimeLeft <= 0) {
+          newState = getInitialState(config);
+          localStorage.removeItem(STORAGE_KEY_PREFIX + uid);
+        } else {
+          newState.isRunning = false;
+          newState.startTime = null;
+        }
+      } else {
+        newState.isRunning = false;
+        newState.startTime = null;
+      }
+
+      dispatch({ type: 'RESTORE_STATE', payload: newState });
+    }
+  }, [config]);
+
   const setUserId = useCallback((uid: string) => {
     userId.current = uid;
-  }, []);
+    if (uid) {
+      restoreState(uid);
+    }
+  }, [restoreState]);
 
+  // Lưu state mỗi khi thay đổi
+  useEffect(() => {
+    if (userId.current) {
+      saveStateToStorage(userId.current, state);
+    }
+  }, [state]);
+
+  // ---------- Âm thanh (Web Audio) ----------
+  const prevStatusRef = useRef(state.status);
+
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+
+    // Khi work hoàn thành (chuyển từ working sang break)
+    if (prev === 'working' && (state.status === 'shortBreak' || state.status === 'longBreak')) {
+      // Âm thanh báo kết thúc work: beep 800Hz, 200ms
+      playBeep(800, 200, 1);
+    }
+
+    // Khi long break kết thúc (chuỗi hoàn thành)
+    if (prev === 'longBreak' && state.status === 'idle' && state.totalCycles > 0) {
+      // Âm thanh báo hoàn thành chuỗi: 2 tiếng beep 600Hz, 300ms cách nhau 150ms
+      playBeep(600, 300, 2, 150);
+    }
+
+    prevStatusRef.current = state.status;
+  }, [state.status, state.totalCycles]);
+
+  // Trường hợp state chuyển sang 'completed' (nếu có)
+  useEffect(() => {
+    if (state.status === 'completed' && state.totalCycles > 0) {
+      playBeep(600, 300, 2, 150);
+    }
+  }, [state.status]);
+
+  // ---------- Timer logic ----------
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -276,18 +427,14 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden && state.isRunning) {
-        dispatch({ 
-          type: 'TAB_SWITCH', 
-          payload: { duration: 0 } 
-        });
+        dispatch({ type: 'TAB_SWITCH', payload: { duration: 0 } });
       }
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [state.isRunning]);
 
-  // Hàm xử lý khi work hoàn thành
+  // Handle work complete
   const handleWorkComplete = useCallback(async () => {
     if (!userId.current || !state.sessionId) return;
 
@@ -299,7 +446,7 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
         completedSessions: state.totalCycles,
         totalStudyMinutes: state.totalCycles * state.config.workDuration,
       };
-      
+
       const result = await calculateFocusScore(userId.current, factors);
       setFocusResult(result);
 
@@ -319,7 +466,6 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
         hour: new Date().getHours(),
       });
 
-      // Check achievements
       const achievements = await checkAndUnlockAchievements(userId.current, {
         sessions: state.totalCycles + 1,
         focusScore: result.score,
@@ -336,13 +482,20 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
     } catch (error) {
       console.error('Error completing Pomodoro session:', error);
     }
-  }, [userId.current, state.sessionId, state.pauseCount, state.tabSwitchCount, 
-      state.earlyCancelCount, state.totalCycles, state.config.workDuration]);
+  }, [
+    userId.current,
+    state.sessionId,
+    state.pauseCount,
+    state.tabSwitchCount,
+    state.earlyCancelCount,
+    state.totalCycles,
+    state.config.workDuration,
+  ]);
 
   // Timer loop
   const startTimer = useCallback(() => {
     if (timerRef.current) return;
-    
+
     timerRef.current = setInterval(() => {
       if (!state.isRunning) return;
       if (state.startTime === null) return;
@@ -365,9 +518,17 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
         }
       }
     }, 1000);
-  }, [state.isRunning, state.startTime, state.totalSeconds, state.elapsed, state.status, clearTimer, handleWorkComplete]);
+  }, [
+    state.isRunning,
+    state.startTime,
+    state.totalSeconds,
+    state.elapsed,
+    state.status,
+    clearTimer,
+    handleWorkComplete,
+  ]);
 
-  // Effect để start/stop timer
+  // Start/stop timer
   useEffect(() => {
     if (state.isRunning) {
       startTimer();
@@ -377,33 +538,26 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
     return clearTimer;
   }, [state.isRunning, startTimer, clearTimer]);
 
-  // Actions
+  // ---------- Public actions ----------
   const start = useCallback(async () => {
     if (state.status === 'idle' && userId.current) {
-      try {
-        const adaptiveDuration = await getAdaptiveDuration(userId.current);
-        const updatedConfig = { ...state.config, workDuration: adaptiveDuration };
-        
-        const sessionId = await createPomodoroSession(
-          userId.current,
-          adaptiveDuration
-        );
-        
-        dispatch({ 
-          type: 'START', 
-          payload: { sessionId, config: updatedConfig } 
-        });
-      } catch (error) {
-        console.error('Error starting Pomodoro session:', error);
-        const sessionId = await createPomodoroSession(
-          userId.current,
-          state.config.workDuration
-        );
-        dispatch({ 
-          type: 'START', 
-          payload: { sessionId, config: state.config } 
-        });
+      let duration = state.config.workDuration;
+      if (state.config.workDuration === DEFAULT_CONFIG.workDuration) {
+        try {
+          const adaptive = await getAdaptiveDuration(userId.current);
+          duration = adaptive;
+        } catch (error) {
+          console.error('Error getting adaptive duration:', error);
+        }
       }
+
+      const sessionId = await createPomodoroSession(userId.current, duration);
+      const updatedConfig = { ...state.config, workDuration: duration };
+
+      dispatch({
+        type: 'START',
+        payload: { sessionId, config: updatedConfig },
+      });
     }
   }, [state.status, userId.current, state.config]);
 
@@ -429,7 +583,8 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
       await cancelPomodoroSession(state.sessionId);
     }
     dispatch({ type: 'CANCEL' });
-  }, [state.sessionId]);
+    if (userId.current) localStorage.removeItem(STORAGE_KEY_PREFIX + userId.current);
+  }, [state.sessionId, userId.current]);
 
   const finishSession = useCallback(async () => {
     if (state.status === 'working' && state.sessionId) {
@@ -441,8 +596,10 @@ export function usePomodoro(initialConfig?: Partial<PomodoroConfig>) {
     dispatch({ type: 'RESET' });
     setFocusResult(null);
     setSessionCompleted(false);
-  }, []);
+    if (userId.current) localStorage.removeItem(STORAGE_KEY_PREFIX + userId.current);
+  }, [userId.current]);
 
+  // ---------- Return ----------
   return {
     state,
     config,

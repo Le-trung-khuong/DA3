@@ -127,6 +127,10 @@ export const PomodoroSettings: React.FC<Props> = ({ onClose }) => {
     try {
       await saveSettings(localSettings);
       setIsDirty(false);
+
+      // 🔔 PHÁT SỰ KIỆN ĐỂ BÁO CHO TIMER CẬP NHẬT
+      window.dispatchEvent(new CustomEvent('pomodoro-settings-updated'));
+
       setTimeout(() => {
         if (onClose) onClose();
       }, 300);

@@ -1,7 +1,7 @@
 // src/components/client/PomodoroTimer/PomodoroTimer.tsx
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
-import { usePomodoro } from '../../../hooks/usePomodoro';
+import { usePomodoroContext } from '../../../contexts/PomodoroContext';
 import { AchievementDef } from '../../../types/pomodoro';
 import { PomodoroSettings } from './PomodoroSettings';
 import {
@@ -20,9 +20,10 @@ import {
 } from 'lucide-react';
 
 const formatTime = (seconds: number): string => {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  const secs = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(secs / 60);
+  const remainingSecs = secs % 60;
+  return `${String(mins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
 };
 
 const getStatusColor = (status: string): string => {
@@ -79,13 +80,13 @@ export default function PomodoroTimer() {
     showAchievement,
     setShowAchievement,
     settingsLoading,
-  } = usePomodoro();
+  } = usePomodoroContext();
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showFocusResult, setShowFocusResult] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Set userId khi component mount
+  // Set userId khi component mount hoặc userId thay đổi
   useEffect(() => {
     if (userId) setUserId(userId);
   }, [userId, setUserId]);

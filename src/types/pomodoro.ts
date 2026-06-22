@@ -46,7 +46,8 @@ export type PomodoroAction =
   | { type: 'BREAK_COMPLETE' }
   | { type: 'COMPLETE' }
   | { type: 'RESET' }
-  | { type: 'UPDATE_CONFIG'; payload: PomodoroConfig };
+  | { type: 'UPDATE_CONFIG'; payload: PomodoroConfig }
+  | { type: 'RESTORE_STATE'; payload: PomodoroState };   // ✅ THÊM DÒNG NÀY
 
 export interface FocusScoreFactors {
   pauseCount: number;

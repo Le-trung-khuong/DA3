@@ -3,6 +3,7 @@
  * src/layout/LayoutClient.tsx
  * Layout cho phía người học (course player, catalog)
  * Thêm nút Admin Dashboard nếu user có role admin
+ * Tích hợp Floating Pomodoro Widget
  */
 
 "use client";
@@ -12,6 +13,7 @@ import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { BookOpen, LogOut, Home, MessageSquare, Trophy, Bell, UserCircle, Shield } from "lucide-react";
 import NotificationBell from "../components/client/NotificationBell";
+import { FloatingPomodoroWidget } from "../components/FloatingPomodoroWidget/FloatingPomodoroWidget";
 
 export default function LayoutClient() {
   const { currentUser, userProfile, logout } = useAuth();
@@ -268,6 +270,9 @@ export default function LayoutClient() {
       >
         © 2026 Smart Review. All rights reserved.
       </footer>
+
+      {/* Floating Pomodoro Widget - xuất hiện trên mọi trang */}
+      <FloatingPomodoroWidget />
     </div>
   );
 }
