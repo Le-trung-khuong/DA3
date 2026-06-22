@@ -6,18 +6,10 @@ import { LessonCompleteButton } from './LessonCompleteButton';
 import { saveResumeData, getResumeData } from '../../services/progressService';
 import { Menu, BookOpen, Clock, Lightbulb, AlertTriangle, Info, Bookmark, Target } from 'lucide-react';
 
-interface ReadingLessonProps {
-  userId: string;
-  courseId: string;
-  moduleId: string;
-  lessonId: string;
-  title: string;
-  content: string;
-  xpReward: number;
-  onComplete?: () => void;
-  isCompleted?: boolean;
-  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
-}
+// Constants
+const READING_THRESHOLD = 80;
+const MAX_SCROLL_SPIKES = 3;
+const MIN_READING_TIME_PER_WORD = 0.12; // 120ms/từ
 
 interface Heading {
   level: number;
@@ -72,6 +64,19 @@ const KnowledgeCard = ({ icon, color, title, children }: { icon: React.ReactNode
   </div>
 );
 
+interface ReadingLessonProps {
+  userId: string;
+  courseId: string;
+  moduleId: string;
+  lessonId: string;
+  title: string;
+  content: string;
+  xpReward: number;
+  onComplete?: () => void;
+  isCompleted?: boolean;
+  lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
+}
+
 export function ReadingLesson({
   userId,
   courseId,
@@ -91,64 +96,129 @@ export function ReadingLesson({
   const [showToc, setShowToc] = useState(false);
   const [activeHeadingId, setActiveHeadingId] = useState<string>('');
 
+  // New tracking states
+  const [wordCount, setWordCount] = useState(0);
+  const [readingTimeSpent, setReadingTimeSpent] = useState(0);
+  const [scrollSpikeCount, setScrollSpikeCount] = useState(0);
+  const [lastScrollTopPercent, setLastScrollTopPercent] = useState(0);
+  const [actualReadProgress, setActualReadProgress] = useState(0);
+  const [isCompletedState, setIsCompletedState] = useState(isCompleted);
+
   const enhancedContent = useMemo(() => enhanceContentForCards(content), [content]);
 
+  // Tính word count
   useEffect(() => {
-    setHeadings(extractHeadings(content));
+    const plainText = content.replace(/[#*`\[\]()!]/g, ' ').replace(/\s+/g, ' ').trim();
+    const count = plainText.split(/\s+/).length;
+    setWordCount(count);
+  }, [content]);
+
+  // Minimum reading time required
+  const minReadingTimeRequired = useMemo(() => {
+    return Math.max(30, Math.ceil(wordCount * MIN_READING_TIME_PER_WORD));
+  }, [wordCount]);
+
+  // Estimate reading time for display
+  useEffect(() => {
     setReadingTime(estimateReadingTime(content));
   }, [content]);
 
   useEffect(() => {
+    setHeadings(extractHeadings(content));
+  }, [content]);
+
+  // Load resume
+  useEffect(() => {
     const loadResume = async () => {
-      if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+      if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
       const data = await getResumeData(userId, courseId, moduleId, lessonId);
-      if (data?.readingScrollPercent !== undefined && !isCompleted) {
-        setTimeout(() => {
-          const element = contentRef.current;
-          if (element) {
-            const totalScroll = element.clientHeight + element.offsetTop - window.innerHeight;
-            if (totalScroll > 0) {
-              window.scrollTo({ top: totalScroll * (data.readingScrollPercent! / 100), behavior: "auto" });
+      if (data) {
+        if (data.readingScrollPercent !== undefined) {
+          setActualReadProgress(data.readingScrollPercent);
+          setReadProgress(data.readingScrollPercent);
+        }
+        if (data.readingTracking) {
+          setReadingTimeSpent(data.readingTracking.timeSpentSeconds || 0);
+          setScrollSpikeCount(data.readingTracking.scrollSpikeCount || 0);
+        }
+        if (data.readingScrollPercent !== undefined && !isCompletedState) {
+          setTimeout(() => {
+            const element = contentRef.current;
+            if (element) {
+              const totalScroll = element.clientHeight + element.offsetTop - window.innerHeight;
+              if (totalScroll > 0) {
+                window.scrollTo({ top: totalScroll * (data.readingScrollPercent! / 100), behavior: "auto" });
+              }
             }
-          }
-        }, 100);
+          }, 100);
+        }
       }
     };
     loadResume();
-  }, [userId, courseId, moduleId, lessonId, isCompleted]);
+  }, [userId, courseId, moduleId, lessonId, isCompletedState]);
 
-  const saveScrollPercent = useCallback(async () => {
-    if (!userId || !courseId || !moduleId || !lessonId || isCompleted) return;
+  // Save tracking
+  const saveReadingTracking = useCallback(async () => {
+    if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
     await saveResumeData(userId, courseId, moduleId, lessonId, {
-      readingScrollPercent: readProgress,
+      readingScrollPercent: actualReadProgress,
+      readingTracking: {
+        scrollProgress: actualReadProgress,
+        actualProgress: actualReadProgress,
+        timeSpentSeconds: readingTimeSpent,
+        minTimeRequired: minReadingTimeRequired,
+        wordCount,
+        scrollSpikeCount,
+        maxScrollSpikeCount: MAX_SCROLL_SPIKES,
+        lastActivityAt: Date.now(),
+      },
     });
-  }, [userId, courseId, moduleId, lessonId, isCompleted, readProgress]);
+  }, [userId, courseId, moduleId, lessonId, isCompletedState, actualReadProgress, readingTimeSpent, minReadingTimeRequired, wordCount, scrollSpikeCount]);
 
+  // Auto-save every 3s
   useEffect(() => {
     const debounce = setTimeout(() => {
-      saveScrollPercent();
-    }, 2000);
+      saveReadingTracking();
+    }, 3000);
     return () => clearTimeout(debounce);
-  }, [readProgress, saveScrollPercent]);
+  }, [actualReadProgress, readingTimeSpent, scrollSpikeCount, saveReadingTracking]);
+
+  // Scroll handler with anti-cheat
+  const handleScroll = useCallback(() => {
+    if (!contentRef.current || isCompletedState) return;
+    const element = contentRef.current;
+    const scrollTop = window.scrollY;
+    const offsetTop = element.offsetTop;
+    const height = element.clientHeight;
+    const viewportHeight = window.innerHeight;
+    const totalScrollable = height + offsetTop - viewportHeight;
+    const scrolled = scrollTop - offsetTop;
+    const percent = totalScrollable > 0 ? Math.min(100, Math.max(0, (scrolled / totalScrollable) * 100)) : 0;
+
+    setReadProgress(percent);
+
+    // Detect scroll spike: jump > 30% in one update
+    if (lastScrollTopPercent > 0 && Math.abs(percent - lastScrollTopPercent) > 30) {
+      setScrollSpikeCount(prev => prev + 1);
+    }
+    setLastScrollTopPercent(percent);
+
+    // Set actual progress (anti-cheat)
+    setActualReadProgress(percent);
+
+    // Track reading time (chỉ khi progress tăng)
+    if (percent > lastScrollTopPercent) {
+      setReadingTimeSpent(prev => prev + 0.5);
+    }
+  }, [lastScrollTopPercent, isCompletedState]);
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (!contentRef.current || isCompleted) return;
-      const element = contentRef.current;
-      const scrollTop = window.scrollY;
-      const offsetTop = element.offsetTop;
-      const height = element.clientHeight;
-      const viewportHeight = window.innerHeight;
-      const totalScrollable = height + offsetTop - viewportHeight;
-      const scrolled = scrollTop - offsetTop;
-      const percent = totalScrollable > 0 ? Math.min(100, Math.max(0, (scrolled / totalScrollable) * 100)) : 0;
-      setReadProgress(percent);
-    };
     window.addEventListener('scroll', handleScroll);
     handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isCompleted]);
+  }, [handleScroll]);
 
+  // Intersection observer for TOC
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -165,9 +235,14 @@ export function ReadingLesson({
     return () => observer.disconnect();
   }, [headings]);
 
-  const canComplete = readProgress >= 80 && !isCompleted;
+  // Complete condition
+  const canComplete = actualReadProgress >= READING_THRESHOLD &&
+                       readingTimeSpent >= minReadingTimeRequired &&
+                       scrollSpikeCount <= MAX_SCROLL_SPIKES &&
+                       !isCompletedState;
 
   const markdownComponents = {
+    // ... (giữ nguyên các components markdown như cũ)
     h1: ({ children }: any) => {
       const text = children?.toString() || '';
       const id = slugify(text);
@@ -249,16 +324,32 @@ export function ReadingLesson({
     </nav>
   );
 
+  // Requirement messages
+  const requirementMessage = useMemo(() => {
+    if (isCompletedState) return '';
+    if (actualReadProgress < READING_THRESHOLD) {
+      return `📖 Đã đọc ${Math.round(actualReadProgress)}%, cần ${READING_THRESHOLD}%`;
+    }
+    if (readingTimeSpent < minReadingTimeRequired) {
+      return `⏱️ Cần đọc thêm ${Math.round(minReadingTimeRequired - readingTimeSpent)} giây`;
+    }
+    if (scrollSpikeCount > MAX_SCROLL_SPIKES) {
+      return '⚠️ Phát hiện cuộn quá nhanh';
+    }
+    return '';
+  }, [actualReadProgress, readingTimeSpent, minReadingTimeRequired, scrollSpikeCount, isCompletedState]);
+
   return (
     <div style={{ maxWidth: '100%', margin: '0 auto', position: 'relative' }}>
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#0F0F1A', paddingTop: '0.5rem' }}>
         <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, marginBottom: '0.5rem' }}>
-          <div style={{ width: `${readProgress}%`, height: '100%', background: readProgress >= 80 ? '#45f1c5' : '#6C63FF', borderRadius: 2, transition: 'width 0.2s' }} />
+          <div style={{ width: `${Math.min(100, actualReadProgress)}%`, height: '100%', background: canComplete ? '#45f1c5' : '#6C63FF', borderRadius: 2, transition: 'width 0.2s' }} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: '#C7C4D8', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <Clock size={14} /> {readingTime} min read
-            <BookOpen size={14} /> {Math.round(readProgress)}% read
+            <BookOpen size={14} /> {Math.round(actualReadProgress)}% read (actual)
+            {scrollSpikeCount > 0 && <span style={{ color: '#FFB785' }}>⚠️ {scrollSpikeCount}/{MAX_SCROLL_SPIKES} spikes</span>}
           </div>
           <button
             onClick={() => setShowToc(!showToc)}
@@ -291,14 +382,11 @@ export function ReadingLesson({
               xpReward={xpReward}
               onComplete={onComplete}
               disabled={!canComplete}
-              isCompleted={isCompleted}
+              isCompleted={isCompletedState}
               lessonType={lessonType}
+              requirementsMet={canComplete}
+              requirementMessage={requirementMessage}
             />
-            {!isCompleted && readProgress < 80 && (
-              <p style={{ fontSize: '0.85rem', color: '#FFB785', marginTop: '0.75rem' }}>
-                📖 Read at least 80% of the content to unlock completion.
-              </p>
-            )}
           </div>
         </main>
       </div>

@@ -67,16 +67,17 @@ export function QuizLesson({
   useEffect(() => {
     const checkCompletion = async () => {
       if (!userId) return;
+      // Lấy progress document để đọc xpEarned
+      const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+      const progSnap = await getDoc(doc(db, "progress", progressId));
+      if (progSnap.exists()) {
+        setXpEarned(progSnap.data().xpEarned || 0);
+      }
+
       if (initialCompleted) {
         setIsCompletedState(true);
         const best = await getBestQuizScore(userId, courseId, moduleId, lessonId);
         if (best !== null) setExistingScore(best);
-        // Lấy xpEarned
-        const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
-        const progSnap = await getDoc(doc(db, "progress", progressId));
-        if (progSnap.exists()) {
-          setXpEarned(progSnap.data().xpEarned || 0);
-        }
         return;
       }
       const completed = await isLessonCompleted(userId, courseId, moduleId, lessonId);
@@ -84,11 +85,6 @@ export function QuizLesson({
       if (completed) {
         const best = await getBestQuizScore(userId, courseId, moduleId, lessonId);
         if (best !== null) setExistingScore(best);
-        const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
-        const progSnap = await getDoc(doc(db, "progress", progressId));
-        if (progSnap.exists()) {
-          setXpEarned(progSnap.data().xpEarned || 0);
-        }
       }
     };
     checkCompletion();
@@ -258,45 +254,11 @@ export function QuizLesson({
           {!isRetry && <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>+{xpReward} XP earned!</p>}
           {isRetry && <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>🔄 Làm lại thành công, không cộng XP.</p>}
           <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 16 }}>
-            <button
-              onClick={() => setShowReview(true)}
-              style={{
-                padding: "8px 20px",
-                borderRadius: 12,
-                background: "rgba(108,99,255,0.2)",
-                border: "1px solid rgba(108,99,255,0.3)",
-                color: "#c4c0ff",
-                cursor: "pointer",
-              }}
-            >
-              📝 Xem lại đáp án
-            </button>
-            <button
-              onClick={handleRetry}
-              style={{
-                padding: "8px 20px",
-                borderRadius: 12,
-                background: "rgba(255,183,133,0.2)",
-                border: "1px solid rgba(255,183,133,0.3)",
-                color: "#FFB785",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <RefreshCw size={16} /> Làm lại
-            </button>
+            <button onClick={() => setShowReview(true)} style={{ padding: "8px 20px", borderRadius: 12, background: "rgba(108,99,255,0.2)", border: "1px solid rgba(108,99,255,0.3)", color: "#c4c0ff", cursor: "pointer" }}>📝 Xem lại đáp án</button>
+            <button onClick={handleRetry} style={{ padding: "8px 20px", borderRadius: 12, background: "rgba(255,183,133,0.2)", border: "1px solid rgba(255,183,133,0.3)", color: "#FFB785", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><RefreshCw size={16} /> Làm lại</button>
           </div>
         </div>
-        {showReview && (
-          <QuizReviewModal
-            questions={questions}
-            answers={answers}
-            score={score || existingScore}
-            onClose={() => setShowReview(false)}
-          />
-        )}
+        {showReview && <QuizReviewModal questions={questions} answers={answers} score={score || existingScore} onClose={() => setShowReview(false)} />}
       </div>
     );
   }
@@ -309,34 +271,10 @@ export function QuizLesson({
           <h2 style={{ fontSize: 28, fontWeight: 800, color: "#45f1c5", marginTop: 16 }}>Congratulations!</h2>
           <p style={{ fontSize: 18, color: "#E4E1EE" }}>You scored {Math.round(score)}%</p>
           <p style={{ fontSize: 14, color: "#C7C4D8" }}>Passing score: {passingScore}%</p>
-          {isCompleting ? (
-            <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>Đang cộng XP...</p>
-          ) : (
-            <p style={{ fontSize: 14, color: "#45f1c5", marginTop: 8 }}>✅ +{xpReward} XP earned!</p>
-          )}
-          <button
-            onClick={() => setShowReview(true)}
-            style={{
-              marginTop: 16,
-              padding: "8px 20px",
-              borderRadius: 12,
-              background: "rgba(108,99,255,0.2)",
-              border: "1px solid rgba(108,99,255,0.3)",
-              color: "#c4c0ff",
-              cursor: "pointer",
-            }}
-          >
-            📝 Xem lại đáp án
-          </button>
+          {isCompleting ? <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>Đang cộng XP...</p> : <p style={{ fontSize: 14, color: "#45f1c5", marginTop: 8 }}>✅ +{xpReward} XP earned!</p>}
+          <button onClick={() => setShowReview(true)} style={{ marginTop: 16, padding: "8px 20px", borderRadius: 12, background: "rgba(108,99,255,0.2)", border: "1px solid rgba(108,99,255,0.3)", color: "#c4c0ff", cursor: "pointer" }}>📝 Xem lại đáp án</button>
         </div>
-        {showReview && (
-          <QuizReviewModal
-            questions={questions}
-            answers={answers}
-            score={score}
-            onClose={() => setShowReview(false)}
-          />
-        )}
+        {showReview && <QuizReviewModal questions={questions} answers={answers} score={score} onClose={() => setShowReview(false)} />}
       </div>
     );
   }
@@ -350,29 +288,9 @@ export function QuizLesson({
           <p style={{ fontSize: 18, color: "#E4E1EE" }}>Your score: {Math.round(score)}%</p>
           <p style={{ fontSize: 14, color: "#C7C4D8" }}>Passing score: {passingScore}%</p>
           <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>🔄 Làm lại thành công, không cộng XP.</p>
-          <button
-            onClick={() => setShowReview(true)}
-            style={{
-              marginTop: 16,
-              padding: "8px 20px",
-              borderRadius: 12,
-              background: "rgba(108,99,255,0.2)",
-              border: "1px solid rgba(108,99,255,0.3)",
-              color: "#c4c0ff",
-              cursor: "pointer",
-            }}
-          >
-            📝 Xem lại đáp án
-          </button>
+          <button onClick={() => setShowReview(true)} style={{ marginTop: 16, padding: "8px 20px", borderRadius: 12, background: "rgba(108,99,255,0.2)", border: "1px solid rgba(108,99,255,0.3)", color: "#c4c0ff", cursor: "pointer" }}>📝 Xem lại đáp án</button>
         </div>
-        {showReview && (
-          <QuizReviewModal
-            questions={questions}
-            answers={answers}
-            score={score}
-            onClose={() => setShowReview(false)}
-          />
-        )}
+        {showReview && <QuizReviewModal questions={questions} answers={answers} score={score} onClose={() => setShowReview(false)} />}
       </div>
     );
   }
@@ -407,29 +325,7 @@ export function QuizLesson({
         </div>
 
         <div style={{ textAlign: "center" }}>
-          <button
-            onClick={() => {
-              setAnswers({});
-              setSubmitted(false);
-              setCurrentIndex(0);
-              setTimeLeft(60 * questions.length);
-              setTimerActive(true);
-              setSubmitting(false);
-              setIsRetry(false);
-              saveResumeData(userId, courseId, moduleId, lessonId, {});
-            }}
-            style={{
-              background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-              border: "none",
-              padding: "10px 24px",
-              borderRadius: 12,
-              color: "#fff",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Try Again
-          </button>
+          <button onClick={() => { setAnswers({}); setSubmitted(false); setCurrentIndex(0); setTimeLeft(60 * questions.length); setTimerActive(true); setSubmitting(false); setIsRetry(false); saveResumeData(userId, courseId, moduleId, lessonId, {}); }} style={{ background: "linear-gradient(135deg,#6C63FF,#9B59B6)", border: "none", padding: "10px 24px", borderRadius: 12, color: "#fff", fontWeight: 700, cursor: "pointer" }}>Try Again</button>
         </div>
       </div>
     );
@@ -464,21 +360,7 @@ export function QuizLesson({
         <p style={{ fontSize: 20, fontWeight: 600, color: "#E4E1EE", marginBottom: 24 }}>{currentQuestion.text}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {currentQuestion.options.map((opt, idx) => (
-            <label
-              key={idx}
-              onClick={() => handleSelect(currentQuestion.id, idx)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "12px 16px",
-                background: answers[currentQuestion.id] === idx ? "rgba(108,99,255,0.2)" : "rgba(255,255,255,0.04)",
-                border: answers[currentQuestion.id] === idx ? "1px solid rgba(108,99,255,0.5)" : "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 12,
-                cursor: "pointer",
-                transition: "0.1s",
-              }}
-            >
+            <label key={idx} onClick={() => handleSelect(currentQuestion.id, idx)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: answers[currentQuestion.id] === idx ? "rgba(108,99,255,0.2)" : "rgba(255,255,255,0.04)", border: answers[currentQuestion.id] === idx ? "1px solid rgba(108,99,255,0.5)" : "1px solid rgba(255,255,255,0.08)", borderRadius: 12, cursor: "pointer", transition: "0.1s" }}>
               <input type="radio" name={currentQuestion.id} checked={answers[currentQuestion.id] === idx} onChange={() => {}} style={{ accentColor: "#6C63FF" }} />
               <span style={{ fontSize: 15, color: "#C7C4D8" }}>{opt}</span>
             </label>
@@ -487,69 +369,17 @@ export function QuizLesson({
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-        <button
-          onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
-          disabled={currentIndex === 0}
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 12,
-            padding: "10px 20px",
-            color: "#C7C4D8",
-            cursor: "pointer",
-          }}
-        >
-          <ChevronLeft size={16} /> Previous
-        </button>
+        <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} disabled={currentIndex === 0} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 20px", color: "#C7C4D8", cursor: "pointer" }}><ChevronLeft size={16} /> Previous</button>
         {currentIndex < questions.length - 1 ? (
-          <button
-            onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}
-            style={{
-              background: "rgba(108,99,255,0.2)",
-              border: "1px solid rgba(108,99,255,0.3)",
-              borderRadius: 12,
-              padding: "10px 20px",
-              color: "#c4c0ff",
-              cursor: "pointer",
-            }}
-          >
-            Next <ChevronRight size={16} />
-          </button>
+          <button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))} style={{ background: "rgba(108,99,255,0.2)", border: "1px solid rgba(108,99,255,0.3)", borderRadius: 12, padding: "10px 20px", color: "#c4c0ff", cursor: "pointer" }}>Next <ChevronRight size={16} /></button>
         ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            style={{
-              background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-              border: "none",
-              borderRadius: 12,
-              padding: "10px 24px",
-              color: "#fff",
-              fontWeight: 700,
-              cursor: submitting ? "wait" : "pointer",
-            }}
-          >
-            {submitting ? "Submitting..." : "Submit Quiz"}
-          </button>
+          <button onClick={handleSubmit} disabled={submitting} style={{ background: "linear-gradient(135deg,#6C63FF,#9B59B6)", border: "none", borderRadius: 12, padding: "10px 24px", color: "#fff", fontWeight: 700, cursor: submitting ? "wait" : "pointer" }}>{submitting ? "Submitting..." : "Submit Quiz"}</button>
         )}
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 24, flexWrap: "wrap" }}>
         {questions.map((_, idx) => (
-          <button
-            key={idx}
-            onClick={() => setCurrentIndex(idx)}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              background: answers[questions[idx].id] !== undefined ? "#6C63FF" : "rgba(255,255,255,0.1)",
-              border: currentIndex === idx ? "2px solid #c4c0ff" : "none",
-              color: "#E4E1EE",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
+          <button key={idx} onClick={() => setCurrentIndex(idx)} style={{ width: 32, height: 32, borderRadius: "50%", background: answers[questions[idx].id] !== undefined ? "#6C63FF" : "rgba(255,255,255,0.1)", border: currentIndex === idx ? "2px solid #c4c0ff" : "none", color: "#E4E1EE", fontSize: 12, cursor: "pointer" }}>
             {idx + 1}
           </button>
         ))}
@@ -558,17 +388,7 @@ export function QuizLesson({
       {/* Luôn hiển thị LessonCompleteButton nếu đã hoàn thành (nhưng chưa cộng XP) */}
       {isCompletedState && (
         <div style={{ marginTop: 24, textAlign: "center" }}>
-          <LessonCompleteButton
-            userId={userId}
-            courseId={courseId}
-            moduleId={moduleId}
-            lessonId={lessonId}
-            xpReward={xpReward}
-            onComplete={onComplete}
-            isCompleted={isCompletedState}
-            xpEarned={xpEarned}
-            lessonType={lessonType}
-          />
+          <LessonCompleteButton userId={userId} courseId={courseId} moduleId={moduleId} lessonId={lessonId} xpReward={xpReward} onComplete={onComplete} isCompleted={isCompletedState} xpEarned={xpEarned} lessonType={lessonType} />
         </div>
       )}
     </div>
@@ -588,76 +408,29 @@ function QuizReviewModal({ questions, answers, score, onClose }: QuizReviewModal
   const total = questions.length;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.8)",
-        backdropFilter: "blur(8px)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-      }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div
-        style={{
-          maxWidth: 700,
-          width: "100%",
-          maxHeight: "90vh",
-          overflowY: "auto",
-          background: "#1A1A2E",
-          borderRadius: 24,
-          padding: 24,
-          border: "1px solid rgba(108,99,255,0.2)",
-        }}
-      >
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={{ maxWidth: 700, width: "100%", maxHeight: "90vh", overflowY: "auto", background: "#1A1A2E", borderRadius: 24, padding: 24, border: "1px solid rgba(108,99,255,0.2)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>📝 Quiz Review</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 20 }}>
-            ✕
-          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 20 }}>✕</button>
         </div>
         <div style={{ display: "flex", gap: 20, marginBottom: 24, padding: 16, background: "rgba(255,255,255,0.04)", borderRadius: 16, flexWrap: "wrap" }}>
-          <div>
-            <span style={{ color: "#C7C4D8" }}>Score:</span> <strong style={{ color: "#45f1c5" }}>{Math.round(score)}%</strong>
-          </div>
-          <div>
-            <span style={{ color: "#C7C4D8" }}>Correct:</span> <strong style={{ color: "#45f1c5" }}>{correctCount}/{total}</strong>
-          </div>
-          <div>
-            <span style={{ color: "#C7C4D8" }}>Incorrect:</span> <strong style={{ color: "#ffb4ab" }}>{total - correctCount}</strong>
-          </div>
+          <div><span style={{ color: "#C7C4D8" }}>Score:</span> <strong style={{ color: "#45f1c5" }}>{Math.round(score)}%</strong></div>
+          <div><span style={{ color: "#C7C4D8" }}>Correct:</span> <strong style={{ color: "#45f1c5" }}>{correctCount}/{total}</strong></div>
+          <div><span style={{ color: "#C7C4D8" }}>Incorrect:</span> <strong style={{ color: "#ffb4ab" }}>{total - correctCount}</strong></div>
         </div>
         {questions.map((q, idx) => {
           const selected = answers[q.id];
           const isCorrect = selected === q.correctOptionIndex;
           return (
-            <div
-              key={q.id}
-              style={{
-                background: "rgba(26,26,46,0.6)",
-                borderRadius: 16,
-                padding: 16,
-                marginBottom: 16,
-                border: `1px solid ${isCorrect ? "rgba(69,241,197,0.2)" : "rgba(255,180,171,0.2)"}`,
-              }}
-            >
+            <div key={q.id} style={{ background: "rgba(26,26,46,0.6)", borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${isCorrect ? "rgba(69,241,197,0.2)" : "rgba(255,180,171,0.2)"}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 {isCorrect ? <CheckCircle size={16} color="#45f1c5" /> : <XCircle size={16} color="#ffb4ab" />}
                 <span style={{ fontWeight: 600, color: "#E4E1EE" }}>Q{idx + 1}. {q.text}</span>
               </div>
               <div style={{ fontSize: 13, color: "#C7C4D8" }}>Your answer: {selected !== undefined ? q.options[selected] : "Not answered"}</div>
-              {!isCorrect && (
-                <div style={{ fontSize: 13, color: "#6C63FF", marginTop: 4 }}>✅ Correct: {q.options[q.correctOptionIndex]}</div>
-              )}
-              {q.explanation && (
-                <div style={{ fontSize: 12, color: "#C7C4D8", marginTop: 8, padding: 8, background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>
-                  💡 {q.explanation}
-                </div>
-              )}
+              {!isCorrect && <div style={{ fontSize: 13, color: "#6C63FF", marginTop: 4 }}>✅ Correct: {q.options[q.correctOptionIndex]}</div>}
+              {q.explanation && <div style={{ fontSize: 12, color: "#C7C4D8", marginTop: 8, padding: 8, background: "rgba(255,255,255,0.04)", borderRadius: 8 }}>💡 {q.explanation}</div>}
             </div>
           );
         })}

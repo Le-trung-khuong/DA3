@@ -1,24 +1,48 @@
-/**
- * src/components/client/ReviewForm.tsx
- * Modal form để user viết đánh giá
- */
-
-import React, { useState } from "react";
-import { Star, X, AlertCircle } from "lucide-react";
+// src/components/client/ReviewForm.tsx
+import React, { useState, useEffect } from "react";
+import { Star, X, AlertCircle, Shield, Loader } from "lucide-react";
+import { checkReviewEligibility } from "../../services/reviewService";
+import { useAuth } from "../../hooks/useAuth";
 
 interface ReviewFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (rating: number, content: string) => Promise<void>;
+  courseId: string;
   courseTitle: string;
 }
 
-export function ReviewForm({ isOpen, onClose, onSubmit, courseTitle }: ReviewFormProps) {
+export function ReviewForm({ isOpen, onClose, onSubmit, courseId, courseTitle }: ReviewFormProps) {
+  const { currentUser } = useAuth();
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [eligibility, setEligibility] = useState<{
+    eligible: boolean;
+    message?: string;
+    progress?: number;
+  } | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  // ✅ Kiểm tra điều kiện khi mở modal
+  useEffect(() => {
+    if (!isOpen || !currentUser || !courseId) return;
+
+    const check = async () => {
+      setChecking(true);
+      try {
+        const result = await checkReviewEligibility(currentUser.uid, courseId);
+        setEligibility(result);
+      } catch (err) {
+        setError("Không thể kiểm tra điều kiện đánh giá.");
+      } finally {
+        setChecking(false);
+      }
+    };
+    check();
+  }, [isOpen, currentUser, courseId]);
 
   const handleSubmit = async () => {
     if (rating === 0) {
@@ -45,6 +69,98 @@ export function ReviewForm({ isOpen, onClose, onSubmit, courseTitle }: ReviewFor
 
   if (!isOpen) return null;
 
+  // ✅ Hiển thị thông báo nếu chưa đủ điều kiện
+  if (!checking && eligibility && !eligibility.eligible) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.7)",
+          backdropFilter: "blur(6px)",
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 500,
+            background: "#1a1a2e",
+            borderRadius: 24,
+            border: "1px solid rgba(255,255,255,0.08)",
+            padding: 28,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ fontSize: 20, fontWeight: 700, color: "#E4E1EE" }}>Đánh giá khóa học</h3>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#C7C4D8" }}>
+              <X size={20} />
+            </button>
+          </div>
+          <div style={{ textAlign: "center", padding: "20px 0" }}>
+            <AlertCircle size={48} color="#FFB785" />
+            <p style={{ color: "#FFB785", fontSize: 16, fontWeight: 600, marginTop: 16 }}>
+              {eligibility.message}
+            </p>
+            {eligibility.progress !== undefined && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ height: 6, background: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden", maxWidth: 300, margin: "0 auto" }}>
+                  <div style={{ width: `${Math.min(eligibility.progress, 100)}%`, height: "100%", background: "#6C63FF", borderRadius: 3 }} />
+                </div>
+                <p style={{ fontSize: 12, color: "#C7C4D8", marginTop: 4 }}>
+                  Tiến độ hiện tại: {Math.round(eligibility.progress)}% (cần 30%)
+                </p>
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                marginTop: 20,
+                padding: "10px 24px",
+                borderRadius: 12,
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: "#C7C4D8",
+                cursor: "pointer",
+              }}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (checking) {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.7)",
+          backdropFilter: "blur(6px)",
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+      >
+        <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 40, textAlign: "center" }}>
+          <Loader size={32} style={{ animation: "spin 1s linear infinite" }} />
+          <p style={{ color: "#C7C4D8", marginTop: 16 }}>Đang kiểm tra điều kiện...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ Form review (khi đủ điều kiện)
   return (
     <div
       style={{
@@ -68,7 +184,6 @@ export function ReviewForm({ isOpen, onClose, onSubmit, courseTitle }: ReviewFor
           borderRadius: 24,
           border: "1px solid rgba(255,255,255,0.08)",
           padding: 28,
-          animation: "scaleIn 0.2s ease",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -81,6 +196,14 @@ export function ReviewForm({ isOpen, onClose, onSubmit, courseTitle }: ReviewFor
         <p style={{ fontSize: 14, color: "#C7C4D8", marginBottom: 16 }}>
           <strong>{courseTitle}</strong>
         </p>
+
+        {/* Verified badge */}
+        {eligibility?.eligible && eligibility.progress && eligibility.progress >= 80 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, background: "rgba(69,241,197,0.08)", padding: "8px 12px", borderRadius: 8 }}>
+            <Shield size={16} color="#45f1c5" />
+            <span style={{ fontSize: 12, color: "#45f1c5", fontWeight: 600 }}>✓ Verified Learner</span>
+          </div>
+        )}
 
         {/* Star rating */}
         <div style={{ marginBottom: 20 }}>

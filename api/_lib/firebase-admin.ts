@@ -1,43 +1,60 @@
 // api/_lib/firebase-admin.ts
 import admin from 'firebase-admin';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
-// Lấy __dirname trong ES module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-console.log('Current __dirname:', __dirname);
-
-// Thử nhiều đường dẫn
-const possiblePaths = [
-  join(__dirname, 'serviceAccountKey.json'),
-  join(process.cwd(), 'api', '_lib', 'serviceAccountKey.json'),
-  join(process.cwd(), 'serviceAccountKey.json'),
-];
-
-let serviceAccount = null;
-for (const path of possiblePaths) {
-  try {
-    serviceAccount = JSON.parse(readFileSync(path, 'utf8'));
-    console.log(`✅ Loaded service account from ${path}`);
-    break;
-  } catch (err) {
-    console.log(`Failed to load from ${path}`);
+// Hàm lấy credentials từ environment variables
+const getFirebaseCredentials = () => {
+  // Cách 1: Dùng một biến FIREBASE_SERVICE_ACCOUNT chứa toàn bộ JSON
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const creds = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      console.log('✅ Found FIREBASE_SERVICE_ACCOUNT env var');
+      return creds;
+    } catch (e) {
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:', e);
+    }
   }
-}
 
+  // Cách 2 (Fallback): Dùng các biến riêng lẻ
+  if (process.env.FIREBASE_PROJECT_ID && 
+      process.env.FIREBASE_CLIENT_EMAIL && 
+      process.env.FIREBASE_PRIVATE_KEY) {
+    console.log('✅ Found individual FIREBASE_* env vars');
+    return {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    };
+  }
+
+  console.error('❌ No Firebase credentials found in environment variables.');
+  return null;
+};
+
+// Khởi tạo Firebase Admin
 if (!admin.apps.length) {
-  if (serviceAccount) {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('✅ Firebase Admin initialized with service account');
+  const credentials = getFirebaseCredentials();
+  
+  if (credentials) {
+    try {
+      admin.initializeApp({
+        credential: admin.credential.cert(credentials),
+        // Bạn có thể thêm projectId nếu muốn chắc chắn
+        // projectId: credentials.projectId,
+      });
+      console.log('✅ Firebase Admin initialized successfully with env credentials!');
+    } catch (error) {
+      console.error('❌ Failed to initialize Firebase Admin with env credentials:', error);
+      // Khởi tạo fallback để tránh lỗi crash app, nhưng sẽ không hoạt động
+      admin.initializeApp({
+        projectId: process.env.FIREBASE_PROJECT_ID || 'smart-review-dashboard'
+      });
+    }
   } else {
-    console.error('❌ No service account file found. Using default credentials.');
-    // Vẫn khởi tạo app để không crash, nhưng các query sẽ fail
-    admin.initializeApp();
+    // Trường hợp này sẽ xảy ra nếu bạn chưa set env
+    console.error('❌ No Firebase credentials found. Initializing without credentials (will fail).');
+    admin.initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || 'smart-review-dashboard'
+    });
   }
 }
 

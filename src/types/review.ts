@@ -1,8 +1,4 @@
-/**
- * src/types/review.ts
- * Định nghĩa kiểu dữ liệu cho review system
- */
-
+// src/types/review.ts
 export type ReviewStatus = "visible" | "hidden" | "reported";
 
 export interface Review {
@@ -17,7 +13,14 @@ export interface Review {
   status: ReviewStatus;
   createdAt: Date;
   updatedAt: Date;
-  helpfulCount: number;    // số lượt hữu ích
-  reportCount?: number;    // số lần báo cáo (cho mở rộng)
-  adminNote?: string;      // ghi chú của admin
+  helpfulCount: number;
+  notHelpfulCount: number;      // ✅ Mới
+  helpfulUsers: string[];       // ✅ Mới
+  notHelpfulUsers: string[];    // ✅ Mới
+  reportCount?: number;
+  adminNote?: string;
+  // ✅ Mới
+  verified: boolean;
+  reviewWeight: number;
+  learnerLevel?: string;        // e.g., "beginner", "intermediate", "advanced"
 }

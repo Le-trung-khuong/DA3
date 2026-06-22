@@ -4,13 +4,14 @@
  *
  * Features:
  *   - Realtime onSnapshot from Firestore `reviews` collection
- *   - Filter by rating (1-5) and status (visible/hidden)
+ *   - Filter by rating (1-5) and status (visible/hidden/reported)
  *   - Search by userName or courseTitle
  *   - Pagination (client-side)
  *   - Hide/Unhide review (soft delete)
  *   - Delete review permanently (with confirm dialog)
- *   - Stats cards: total reviews, avg rating, visible/hidden counts
+ *   - Stats cards: total reviews, avg rating, visible/hidden counts, reported
  *   - Sort by reportCount (high to low)
+ *   - ✅ Hiển thị Verified, Review Weight, Helpful/Not Helpful
  */
 
 "use client";
@@ -27,7 +28,6 @@ import { db } from "../../../utils/config";
 import { hideReview, unhideReview, deleteReview } from "../../../services/reviewService";
 import type { Review, ReviewStatus } from "../../../types/review";
 
-// Icons
 import {
   Search,
   Eye,
@@ -42,10 +42,12 @@ import {
   CheckCircle,
   XCircle,
   Loader,
-  User,
   BookOpen,
   Calendar,
-  Filter,
+  Shield,
+  Award,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 // ==================== HELPERS ====================
@@ -60,7 +62,13 @@ const fmtRelative = (d: Date) => {
   const days = Math.floor(hrs / 24);
   return `${days}d trước`;
 };
-const fmtNum = (n: number) => new Intl.NumberFormat("vi-VN").format(n);
+
+const weightToColor = (weight: number): string => {
+  if (weight >= 1.8) return "#FFD700";
+  if (weight >= 1.5) return "#FFB785";
+  if (weight >= 1.2) return "#6C63FF";
+  return "#C7C4D8";
+};
 
 const STATUS_CFG: Record<ReviewStatus, { label: string; color: string; bg: string; border: string; Icon: React.ElementType }> = {
   visible: { label: "Visible", color: "#45f1c5", bg: "rgba(69,241,197,.12)", border: "rgba(69,241,197,.28)", Icon: Eye },
@@ -107,8 +115,11 @@ const ReviewDetailModal = ({ review, onClose }: { review: Review; onClose: () =>
           ["Rating", `${review.rating} / 5`],
           ["Content", review.content],
           ["Status", review.status],
+          ["Verified", review.verified ? "✅ Yes" : "❌ No"],
+          ["Weight", (review.reviewWeight || 1).toFixed(2) + "x"],
+          ["Helpful", `${review.helpfulCount || 0} 👍`],
+          ["Not Helpful", `${review.notHelpfulCount || 0} 👎`],
           ["Report Count", review.reportCount ?? 0],
-          ["Helpful", `${review.helpfulCount} lượt`],
           ["Created", fmtDate(review.createdAt)],
           ["Updated", fmtDate(review.updatedAt)],
           ...(review.adminNote ? [["Admin Note", review.adminNote]] : []),
@@ -165,7 +176,12 @@ export default function ReviewListAdmin() {
             rating: data.rating || 0,
             content: data.content || "",
             status: data.status || "visible",
+            verified: data.verified || false,
+            reviewWeight: data.reviewWeight || 1.0,
             helpfulCount: data.helpfulCount || 0,
+            notHelpfulCount: data.notHelpfulCount || 0,
+            helpfulUsers: data.helpfulUsers || [],
+            notHelpfulUsers: data.notHelpfulUsers || [],
             reportCount: data.reportCount || 0,
             adminNote: data.adminNote,
             createdAt: data.createdAt?.toDate?.() ?? new Date(),
@@ -198,7 +214,6 @@ export default function ReviewListAdmin() {
     if (statusFilter !== "all") {
       data = data.filter(r => r.status === statusFilter);
     }
-    // Sắp xếp
     if (sortBy === 'reportCount') {
       data.sort((a, b) => (b.reportCount || 0) - (a.reportCount || 0));
     } else {
@@ -243,7 +258,9 @@ export default function ReviewListAdmin() {
     const visible = reviews.filter(r => r.status === "visible").length;
     const hidden = reviews.filter(r => r.status === "hidden").length;
     const reported = reviews.filter(r => r.status === "reported").length;
-    return { total, avgRating, visible, hidden, reported };
+    const verified = reviews.filter(r => r.verified).length;
+    const avgWeight = total ? +(reviews.reduce((sum, r) => sum + (r.reviewWeight || 1), 0) / total).toFixed(2) : 0;
+    return { total, avgRating, visible, hidden, reported, verified, avgWeight };
   }, [reviews]);
 
   // ========== RESET PAGE WHEN FILTERS CHANGE ==========
@@ -272,10 +289,12 @@ export default function ReviewListAdmin() {
       </div>
 
       {/* Stats Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 16, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 16, marginBottom: 24 }}>
         {[
           { label: "Total Reviews", value: stats.total, icon: Users, color: "#c4c0ff" },
           { label: "Avg Rating", value: stats.avgRating, icon: Star, color: "#FFB785" },
+          { label: "Verified", value: stats.verified, icon: Shield, color: "#45f1c5" },
+          { label: "Avg Weight", value: stats.avgWeight + "x", icon: Award, color: "#FFD700" },
           { label: "Visible", value: stats.visible, icon: Eye, color: "#45f1c5" },
           { label: "Hidden", value: stats.hidden, icon: EyeOff, color: "#B0AEC0" },
           { label: "Reported", value: stats.reported, icon: AlertTriangle, color: "#ffb4ab" },
@@ -315,18 +334,11 @@ export default function ReviewListAdmin() {
           <option value="reported">Reported</option>
         </select>
 
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
-          style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}
-        >
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}>
           <option value="reportCount">Sort by Reports</option>
           <option value="createdAt">Sort by Date</option>
         </select>
-        <button
-          onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')}
-          style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}
-        >
+        <button onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')} style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, padding: '8px 12px', color: '#E4E1EE' }}>
           {sortOrder === 'desc' ? '↓' : '↑'}
         </button>
 
@@ -336,7 +348,7 @@ export default function ReviewListAdmin() {
       {/* Table */}
       <div style={{ background: "rgba(26,26,46,.6)", borderRadius: 20, border: "1px solid rgba(255,255,255,.06)", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1200 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(255,255,255,.06)" }}>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>User</th>
@@ -344,6 +356,9 @@ export default function ReviewListAdmin() {
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Rating</th>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Review Content</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Status</th>
+                <th style={{ padding: "12px 16px", textAlign: "center" }}>Verified</th>
+                <th style={{ padding: "12px 16px", textAlign: "center" }}>Weight</th>
+                <th style={{ padding: "12px 16px", textAlign: "center" }}>Helpful</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Reports</th>
                 <th style={{ padding: "12px 16px", textAlign: "left" }}>Created</th>
                 <th style={{ padding: "12px 16px", textAlign: "center" }}>Actions</th>
@@ -354,6 +369,7 @@ export default function ReviewListAdmin() {
                 const statusCfg = STATUS_CFG[review.status];
                 const StatusIcon = statusCfg.Icon;
                 const starColor = review.rating >= 4 ? "#FFB785" : review.rating >= 3 ? "#c4c0ff" : "#B0AEC0";
+                const weightColor = weightToColor(review.reviewWeight || 1);
                 return (
                   <tr key={review.id} style={{ borderBottom: "1px solid rgba(255,255,255,.04)" }}>
                     <td style={{ padding: "12px 16px" }}>
@@ -390,6 +406,24 @@ export default function ReviewListAdmin() {
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 999, background: statusCfg.bg, border: `1px solid ${statusCfg.border}`, color: statusCfg.color, fontSize: 11, fontWeight: 700 }}>
                         <StatusIcon size={11} /> {statusCfg.label}
                       </span>
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      {review.verified ? (
+                        <span style={{ color: "#45f1c5" }}>
+                          <Shield size={16} />
+                        </span>
+                      ) : (
+                        <span style={{ color: "#47464f" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: 600, color: weightColor }}>
+                      {(review.reviewWeight || 1).toFixed(2)}x
+                    </td>
+                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "center", fontSize: 12 }}>
+                        <span style={{ color: "#45f1c5" }}>👍 {review.helpfulCount || 0}</span>
+                        <span style={{ color: "#47464f" }}>👎 {review.notHelpfulCount || 0}</span>
+                      </div>
                     </td>
                     <td style={{ padding: "12px 16px", textAlign: "center", fontWeight: 600, color: (review.reportCount || 0) > 5 ? '#ffb4ab' : '#E4E1EE' }}>
                       {review.reportCount || 0}

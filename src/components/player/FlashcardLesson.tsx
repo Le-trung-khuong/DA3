@@ -54,6 +54,9 @@ export function FlashcardLesson({
   const [xpEarned, setXpEarned] = useState(0);
   const [isCompletedState, setIsCompletedState] = useState(isCompleted);
 
+  // 👁️ View tracking
+  const [viewedCardIds, setViewedCardIds] = useState<Set<string>>(new Set());
+
   const { cards: srsCards, submitReview, initCard, refresh: refreshSRS } = useSRS(userId);
   const [showSRS, setShowSRS] = useState(false);
   const [currentSRSIndex, setCurrentSRSIndex] = useState(0);
@@ -72,7 +75,19 @@ export function FlashcardLesson({
     fetchXp();
   }, [userId, courseId, moduleId, lessonId]);
 
-  // Reset SRS index khi danh sách thẻ thay đổi
+  // Load viewed set từ resume
+  useEffect(() => {
+    const loadResume = async () => {
+      if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
+      const data = await getResumeData(userId, courseId, moduleId, lessonId);
+      if (data?.flashcardViewedSet) {
+        setViewedCardIds(new Set(data.flashcardViewedSet));
+      }
+    };
+    loadResume();
+  }, [userId, courseId, moduleId, lessonId, isCompletedState]);
+
+  // Reset SRS index
   useEffect(() => {
     if (srsCards.length > 0 && currentSRSIndex >= srsCards.length) {
       setCurrentSRSIndex(0);
@@ -87,7 +102,7 @@ export function FlashcardLesson({
     }
   }, [savedProgress, cards]);
 
-  // Load resume data
+  // Load resume data (flashcard)
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
@@ -107,15 +122,17 @@ export function FlashcardLesson({
       saveResumeData(userId, courseId, moduleId, lessonId, {
         flashcardCurrentIndex: currentIndex,
         flashcardReviewQueue: reviewQueue,
+        flashcardViewedSet: Array.from(viewedCardIds),
       });
     }, 500);
     return () => clearTimeout(timeout);
-  }, [currentIndex, reviewQueue, userId, courseId, moduleId, lessonId, isCompletedState]);
+  }, [currentIndex, reviewQueue, viewedCardIds, userId, courseId, moduleId, lessonId, isCompletedState]);
 
   const totalCards = cards.length;
   const currentCard = cards[currentIndex];
   const masteredCount = mastered.size;
   const allMastered = masteredCount === totalCards;
+  const allViewed = viewedCardIds.size === totalCards;
 
   // Save flashcard progress (không set status="completed")
   useEffect(() => {
@@ -151,8 +168,12 @@ export function FlashcardLesson({
   // Handlers với guard
   const handleFlip = useCallback(() => {
     if (isProcessing) return;
+    // Khi lật thẻ (từ front sang back), đánh dấu đã xem
+    if (!flipped) {
+      setViewedCardIds((prev) => new Set(prev).add(currentCard.id));
+    }
     setFlipped((prev) => !prev);
-  }, [isProcessing]);
+  }, [isProcessing, flipped, currentCard]);
 
   const nextCard = useCallback(() => {
     if (isProcessing) return;
@@ -160,7 +181,6 @@ export function FlashcardLesson({
       setCurrentIndex(currentIndex + 1);
       setFlipped(false);
     } else if (reviewQueue.length > 0) {
-      // Không mutate state trực tiếp
       const queue = [...reviewQueue];
       const nextId = queue.shift();
       if (nextId) {
@@ -221,7 +241,7 @@ export function FlashcardLesson({
     [isProcessing, currentCard, currentIndex, totalCards, reviewQueue, cards]
   );
 
-  // Keyboard handler với deps đầy đủ
+  // Keyboard handler
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.code === "Space") {
@@ -241,40 +261,11 @@ export function FlashcardLesson({
 
     if (srsCards.length === 0) {
       return (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.7)",
-            zIndex: 999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              background: "#1a1a2e",
-              borderRadius: 24,
-              padding: 24,
-              maxWidth: 500,
-              width: "100%",
-            }}
-          >
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 500, width: "100%" }}>
             <h3 style={{ color: "#E4E1EE", marginBottom: 16 }}>Ôn tập SRS</h3>
             <p style={{ color: "#C7C4D8" }}>Không có thẻ cần ôn hôm nay.</p>
-            <button
-              onClick={() => setShowSRS(false)}
-              style={{
-                marginTop: 16,
-                background: "none",
-                border: "none",
-                color: "#C7C4D8",
-                cursor: "pointer",
-              }}
-            >
-              Đóng
-            </button>
+            <button onClick={() => setShowSRS(false)} style={{ marginTop: 16, background: "none", border: "none", color: "#C7C4D8", cursor: "pointer" }}>Đóng</button>
           </div>
         </div>
       );
@@ -288,58 +279,18 @@ export function FlashcardLesson({
     const totalSRS = srsCards.length;
 
     return (
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.7)",
-          zIndex: 999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          style={{
-            background: "#1a1a2e",
-            borderRadius: 24,
-            padding: 24,
-            maxWidth: 500,
-            width: "100%",
-          }}
-        >
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: "#1a1a2e", borderRadius: 24, padding: 24, maxWidth: 500, width: "100%" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3 style={{ color: "#E4E1EE", marginBottom: 16 }}>
-              Ôn tập SRS ({safeIndex + 1}/{totalSRS})
-            </h3>
-            <button
-              onClick={() => setShowSRS(false)}
-              style={{ background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 20 }}
-            >
-              ✕
-            </button>
+            <h3 style={{ color: "#E4E1EE", marginBottom: 16 }}>Ôn tập SRS ({safeIndex + 1}/{totalSRS})</h3>
+            <button onClick={() => setShowSRS(false)} style={{ background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 20 }}>✕</button>
           </div>
 
           <div style={{ padding: 16, background: "#0d0d18", borderRadius: 12, marginBottom: 16 }}>
-            {srsFlipped ? (
-              <p style={{ color: "#E4E1EE" }}>{flashCard?.back || "N/A"}</p>
-            ) : (
-              <p style={{ color: "#E4E1EE" }}>{flashCard?.front || "N/A"}</p>
-            )}
+            {srsFlipped ? <p style={{ color: "#E4E1EE" }}>{flashCard?.back || "N/A"}</p> : <p style={{ color: "#E4E1EE" }}>{flashCard?.front || "N/A"}</p>}
           </div>
 
-          <button
-            onClick={() => setSrsFlipped(!srsFlipped)}
-            style={{
-              marginBottom: 16,
-              background: "#6C63FF",
-              border: "none",
-              padding: "4px 12px",
-              borderRadius: 8,
-              color: "#fff",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => setSrsFlipped(!srsFlipped)} style={{ marginBottom: 16, background: "#6C63FF", border: "none", padding: "4px 12px", borderRadius: 8, color: "#fff", cursor: "pointer" }}>
             Lật thẻ
           </button>
 
@@ -359,14 +310,7 @@ export function FlashcardLesson({
                     setShowSRS(false);
                   }
                 }}
-                style={{
-                  padding: "6px 14px",
-                  background: "#6C63FF",
-                  border: "none",
-                  borderRadius: 8,
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
+                style={{ padding: "6px 14px", background: "#6C63FF", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer" }}
               >
                 {q}
               </button>
@@ -378,24 +322,17 @@ export function FlashcardLesson({
   };
 
   // ===== Render chính =====
-  if (allMastered) {
+  const canComplete = allMastered && allViewed && !isCompletedState;
+
+  if (allMastered && allViewed) {
     return (
       <div style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
-        <div
-          style={{
-            background: "rgba(69,241,197,0.1)",
-            borderRadius: 20,
-            padding: 32,
-            marginBottom: 24,
-          }}
-        >
+        <div style={{ background: "rgba(69,241,197,0.1)", borderRadius: 20, padding: 32, marginBottom: 24 }}>
           <CheckCircle size={48} color="#45f1c5" />
           <h3 style={{ fontSize: 22, fontWeight: 700, color: "#E4E1EE", marginTop: 16 }}>Excellent!</h3>
-          <p style={{ fontSize: 16, color: "#C7C4D8" }}>You mastered all {totalCards} flashcards.</p>
+          <p style={{ fontSize: 16, color: "#C7C4D8" }}>You mastered all {totalCards} flashcards and viewed each at least once.</p>
           <div style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 12 }}>
-            <div>
-              <BarChart2 size={16} /> {stats.totalReviewed} reviews
-            </div>
+            <div><BarChart2 size={16} /> {stats.totalReviewed} reviews</div>
             <div>🎯 {Math.round((stats.correct / stats.totalReviewed) * 100) || 0}% accuracy</div>
           </div>
         </div>
@@ -409,6 +346,7 @@ export function FlashcardLesson({
           isCompleted={isCompletedState}
           xpEarned={xpEarned}
           lessonType={lessonType}
+          requirementsMet={canComplete}
         />
         <div style={{ marginTop: 16 }}>
           <button
@@ -416,14 +354,7 @@ export function FlashcardLesson({
               setShowSRS(true);
               refreshSRS();
             }}
-            style={{
-              background: "#6C63FF",
-              border: "none",
-              padding: "6px 16px",
-              borderRadius: 20,
-              color: "#fff",
-              cursor: "pointer",
-            }}
+            style={{ background: "#6C63FF", border: "none", padding: "6px 16px", borderRadius: 20, color: "#fff", cursor: "pointer" }}
           >
             📚 Ôn tập SRS ({srsCards.length})
           </button>
@@ -438,43 +369,9 @@ export function FlashcardLesson({
       <div style={{ maxWidth: 500, margin: "0 auto", textAlign: "center" }}>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE", marginBottom: 24 }}>{title}</h2>
         <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 32 }}>
-          <button
-            onClick={() => setMode("learn")}
-            style={{
-              background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
-              border: "none",
-              padding: "12px 24px",
-              borderRadius: 40,
-              color: "#fff",
-              fontWeight: 700,
-            }}
-          >
-            Start Learn
-          </button>
-          <button
-            onClick={() => setMode("review")}
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              padding: "12px 24px",
-              borderRadius: 40,
-              color: "#C7C4D8",
-            }}
-          >
-            Review
-          </button>
-          <button
-            onClick={() => setMode("test")}
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              padding: "12px 24px",
-              borderRadius: 40,
-              color: "#C7C4D8",
-            }}
-          >
-            Test
-          </button>
+          <button onClick={() => setMode("learn")} style={{ background: "linear-gradient(135deg,#6C63FF,#9B59B6)", border: "none", padding: "12px 24px", borderRadius: 40, color: "#fff", fontWeight: 700 }}>Start Learn</button>
+          <button onClick={() => setMode("review")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", padding: "12px 24px", borderRadius: 40, color: "#C7C4D8" }}>Review</button>
+          <button onClick={() => setMode("test")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", padding: "12px 24px", borderRadius: 40, color: "#C7C4D8" }}>Test</button>
         </div>
         <p style={{ color: "#C7C4D8" }}>Choose a study mode to begin.</p>
       </div>
@@ -486,67 +383,20 @@ export function FlashcardLesson({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>{title}</h2>
         <span style={{ fontSize: 14, color: "#C7C4D8" }}>
-          {masteredCount}/{totalCards} mastered
+          {masteredCount}/{totalCards} mastered | {viewedCardIds.size}/{totalCards} viewed
         </span>
       </div>
 
       <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, marginBottom: 24 }}>
-        <div
-          style={{
-            width: `${(masteredCount / totalCards) * 100}%`,
-            height: "100%",
-            background: "#45f1c5",
-            borderRadius: 2,
-          }}
-        />
+        <div style={{ width: `${(masteredCount / totalCards) * 100}%`, height: "100%", background: "#45f1c5", borderRadius: 2 }} />
       </div>
 
       <div onClick={handleFlip} style={{ perspective: "1000px", cursor: "pointer", marginBottom: 24 }}>
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: 320,
-            transition: "transform 0.6s",
-            transformStyle: "preserve-3d",
-            transform: flipped ? "rotateY(180deg)" : "none",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              width: "100%",
-              height: "100%",
-              backfaceVisibility: "hidden",
-              background: "linear-gradient(135deg,#1a1a2e,#0d0d18)",
-              borderRadius: 20,
-              border: "1px solid rgba(108,99,255,0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-              textAlign: "center",
-            }}
-          >
+        <div style={{ position: "relative", width: "100%", height: 320, transition: "transform 0.6s", transformStyle: "preserve-3d", transform: flipped ? "rotateY(180deg)" : "none" }}>
+          <div style={{ position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden", background: "linear-gradient(135deg,#1a1a2e,#0d0d18)", borderRadius: 20, border: "1px solid rgba(108,99,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
             <p style={{ fontSize: 20, fontWeight: 600, color: "#E4E1EE" }}>{currentCard.front}</p>
           </div>
-          <div
-            style={{
-              position: "absolute",
-              width: "100%",
-              height: "100%",
-              backfaceVisibility: "hidden",
-              transform: "rotateY(180deg)",
-              background: "linear-gradient(135deg,#1a1a2e,#0d0d18)",
-              borderRadius: 20,
-              border: "1px solid rgba(69,241,197,0.3)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 24,
-            }}
-          >
+          <div style={{ position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden", transform: "rotateY(180deg)", background: "linear-gradient(135deg,#1a1a2e,#0d0d18)", borderRadius: 20, border: "1px solid rgba(69,241,197,0.3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
             <p style={{ fontSize: 18, fontWeight: 500, color: "#C7C4D8", marginBottom: 16 }}>{currentCard.back}</p>
             {currentCard.hint && <p style={{ fontSize: 12, color: "#FFB785" }}>💡 {currentCard.hint}</p>}
           </div>
@@ -560,17 +410,8 @@ export function FlashcardLesson({
               key={d}
               onClick={() => handleDifficulty(d)}
               style={{
-                background:
-                  d === "again"
-                    ? "rgba(255,107,107,0.2)"
-                    : d === "hard"
-                    ? "rgba(255,183,133,0.2)"
-                    : d === "good"
-                    ? "rgba(69,241,197,0.2)"
-                    : "rgba(108,99,255,0.2)",
-                border: `1px solid ${
-                  d === "again" ? "#ff6b6b" : d === "hard" ? "#FFB785" : d === "good" ? "#45f1c5" : "#6C63FF"
-                }`,
+                background: d === "again" ? "rgba(255,107,107,0.2)" : d === "hard" ? "rgba(255,183,133,0.2)" : d === "good" ? "rgba(69,241,197,0.2)" : "rgba(108,99,255,0.2)",
+                border: `1px solid ${d === "again" ? "#ff6b6b" : d === "hard" ? "#FFB785" : d === "good" ? "#45f1c5" : "#6C63FF"}`,
                 borderRadius: 40,
                 padding: "6px 16px",
                 fontSize: 12,
@@ -586,81 +427,23 @@ export function FlashcardLesson({
       )}
 
       <div style={{ display: "flex", justifyContent: "center", gap: 12 }}>
-        <button
-          onClick={prevCard}
-          disabled={currentIndex === 0}
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            padding: "8px 16px",
-            cursor: "pointer",
-            color: "#C7C4D8",
-          }}
-        >
+        <button onClick={prevCard} disabled={currentIndex === 0} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", color: "#C7C4D8" }}>
           <ChevronLeft size={16} />
         </button>
-        <button
-          onClick={handleFlip}
-          style={{
-            background: "rgba(108,99,255,0.2)",
-            border: "none",
-            borderRadius: 10,
-            padding: "8px 16px",
-            color: "#c4c0ff",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
+        <button onClick={handleFlip} style={{ background: "rgba(108,99,255,0.2)", border: "none", borderRadius: 10, padding: "8px 16px", color: "#c4c0ff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           <RotateCw size={14} /> Flip
         </button>
-        <button
-          onClick={nextCard}
-          disabled={currentIndex === totalCards - 1 && reviewQueue.length === 0}
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            padding: "8px 16px",
-            cursor: "pointer",
-            color: "#C7C4D8",
-          }}
-        >
+        <button onClick={nextCard} disabled={currentIndex === totalCards - 1 && reviewQueue.length === 0} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", color: "#C7C4D8" }}>
           <ChevronRight size={16} />
         </button>
       </div>
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
-        <button
-          onClick={() => {
-            setMode("learn");
-            setCurrentIndex(0);
-            setFlipped(false);
-            setMastered(new Set());
-            setReviewQueue([]);
-          }}
-          style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}
-        >
+        <button onClick={() => { setMode("learn"); setCurrentIndex(0); setFlipped(false); setMastered(new Set()); setReviewQueue([]); setViewedCardIds(new Set()); }} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
           <RefreshCw size={12} /> Reset session
         </button>
         <br />
-        <button
-          onClick={() => {
-            setShowSRS(true);
-            refreshSRS();
-          }}
-          style={{
-            marginTop: 8,
-            background: "#6C63FF",
-            border: "none",
-            padding: "6px 16px",
-            borderRadius: 20,
-            color: "#fff",
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={() => { setShowSRS(true); refreshSRS(); }} style={{ marginTop: 8, background: "#6C63FF", border: "none", padding: "6px 16px", borderRadius: 20, color: "#fff", cursor: "pointer" }}>
           📚 Ôn tập SRS ({srsCards.length})
         </button>
       </div>

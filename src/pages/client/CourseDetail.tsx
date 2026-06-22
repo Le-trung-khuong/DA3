@@ -114,7 +114,7 @@ export default function CourseDetail() {
   );
   const { progress, isLessonCompleted, getQuizScore } = useProgress(currentUser?.uid, courseId);
 
-  // ✅ AI Recommendation - lấy cả moduleId
+  // AI Recommendation
   const { lessonId: recommendedLessonId, moduleId: recommendedModuleId, reason, loading: recommendationLoading } = useAIRecommendation(
     currentUser?.uid,
     courseId
@@ -390,7 +390,7 @@ export default function CourseDetail() {
         </div>
       </div>
 
-      {/* ✅ AI Recommendation - Sửa link dùng cả moduleId */}
+      {/* AI Recommendation */}
       {recommendedLessonId && recommendedModuleId && !courseLoading && !recommendationLoading && (
         <div style={{ 
           marginTop: 24, 
@@ -590,11 +590,12 @@ export default function CourseDetail() {
         />
       </div>
 
-      {/* Review Form Modal */}
+      {/* ✅ Review Form Modal - đã truyền courseId */}
       <ReviewForm
         isOpen={showReviewForm}
         onClose={() => setShowReviewForm(false)}
         onSubmit={handleSubmitReview}
+        courseId={courseId!}
         courseTitle={course.title}
       />
 

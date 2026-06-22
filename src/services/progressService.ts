@@ -211,7 +211,107 @@ export async function getResumeData(
   return null;
 }
 
-// ============ LESSON COMPLETION (OPTIMIZED) ============
+// ============ COMPLETION REQUIREMENTS CHECK ============
+function mergeSegments(segments: Array<{ start: number; end: number }>): Array<{ start: number; end: number }> {
+  if (!segments.length) return [];
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const s = sorted[i];
+    const last = merged[merged.length - 1];
+    if (s.start <= last.end + 1) {
+      last.end = Math.max(last.end, s.end);
+    } else {
+      merged.push(s);
+    }
+  }
+  return merged;
+}
+
+export async function checkCompletionRequirements(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string,
+  lessonType: string
+): Promise<{ met: boolean; reason?: string; details?: any }> {
+  const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+  const docSnap = await getDoc(doc(db, "progress", progressId));
+  if (!docSnap.exists()) {
+    return { met: false, reason: 'Chưa có dữ liệu tiến độ' };
+  }
+
+  const data = docSnap.data();
+  const resumeData = data.resumeData || {};
+
+  switch (lessonType) {
+    case 'video': {
+      const tracking = resumeData.videoTracking;
+      if (!tracking) return { met: false, reason: 'Chưa có dữ liệu xem video' };
+
+      const merged = mergeSegments(tracking.watchedSegments || []);
+      const totalWatched = merged.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
+      const duration = resumeData.videoDuration || 1;
+      const percent = (totalWatched / duration) * 100;
+
+      if (percent < 80) {
+        return { met: false, reason: `Đã xem thực tế ${Math.round(percent)}%, cần 80%` };
+      }
+      if (tracking.skipCount > 3) {
+        return { met: false, reason: `Vượt quá số lần skip cho phép (${tracking.skipCount}/3)` };
+      }
+      return { met: true, details: { percent, skipCount: tracking.skipCount } };
+    }
+
+    case 'reading': {
+      const tracking = resumeData.readingTracking;
+      if (!tracking) return { met: false, reason: 'Chưa có dữ liệu đọc' };
+
+      if (tracking.actualProgress < 80) {
+        return { met: false, reason: `Đã đọc ${Math.round(tracking.actualProgress)}%, cần 80%` };
+      }
+      if (tracking.timeSpentSeconds < tracking.minTimeRequired) {
+        return { met: false, reason: `Cần đọc ít nhất ${tracking.minTimeRequired} giây` };
+      }
+      if (tracking.scrollSpikeCount > 3) {
+        return { met: false, reason: 'Phát hiện cuộn quá nhanh' };
+      }
+      return { met: true, details: tracking };
+    }
+
+    case 'flashcard': {
+      const progress = data.flashcardProgress;
+      const viewedSet = resumeData.flashcardViewedSet || [];
+      if (!progress) return { met: false, reason: 'Chưa học flashcard' };
+
+      // ✅ Fix TypeScript: ép kiểu cho `c`
+      const allMastered = Object.values(progress.cards).every((c: any) => c.mastered);
+      if (!allMastered) {
+        const masteredCount = Object.values(progress.cards).filter((c: any) => c.mastered).length;
+        return { met: false, reason: `Đã master ${masteredCount}/${progress.totalCount} thẻ` };
+      }
+
+      const allViewed = viewedSet.length >= progress.totalCount;
+      if (!allViewed) {
+        return { met: false, reason: `Đã xem ${viewedSet.length}/${progress.totalCount} thẻ` };
+      }
+      return { met: true, details: { allMastered, allViewed } };
+    }
+
+    case 'quiz': {
+      const score = data.quizScore || 0;
+      if (score < 70) {
+        return { met: false, reason: `Điểm ${score}%, cần 70% để pass` };
+      }
+      return { met: true, details: { score } };
+    }
+
+    default:
+      return { met: true };
+  }
+}
+
+// ============ LESSON COMPLETION ============
 export async function completeLesson(
   userId: string,
   courseId: string,
@@ -222,11 +322,17 @@ export async function completeLesson(
 ): Promise<void> {
   console.log(`[completeLesson] Start: userId=${userId}, lessonId=${lessonId}, xpReward=${xpReward}`);
 
+  // ✅ Check completion requirements
+  const requirements = await checkCompletionRequirements(userId, courseId, moduleId, lessonId, lessonType);
+  if (!requirements.met) {
+    throw new Error(`Completion requirements not met: ${requirements.reason}`);
+  }
+
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
   const userRef = doc(db, "users", userId);
 
-  // ✅ IDEMPOTENCY: Kiểm tra đã có XP chưa
+  // ✅ IDEMPOTENCY
   const existingSnap = await getDoc(progressRef);
   if (existingSnap.exists()) {
     const existingData = existingSnap.data();
@@ -243,7 +349,6 @@ export async function completeLesson(
     console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
   }
 
-  // ===== TRANSACTION (phải chờ) =====
   await runTransaction(db, async (transaction) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists()) {
@@ -283,22 +388,13 @@ export async function completeLesson(
     });
   });
 
-  // ✅ Transaction đã hoàn tất – XP đã được ghi. UI sẽ cập nhật ngay qua onSnapshot.
   console.log(`[completeLesson] Transaction committed, XP awarded.`);
 
   // ===== SIDE EFFECTS (fire-and-forget) =====
-  // Chạy bất đồng bộ, không chặn luồng chính.
   Promise.allSettled([
-    // 1. Cập nhật streak
     updateUserStreak(userId).catch(err => console.error("Streak error:", err)),
-
-    // 2. Ghi log XP
     addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(err => console.error("XPLog error:", err)),
-
-    // 3. Daily mission
     checkAndCompleteDailyTask(userId, lessonType).catch(err => console.error("DailyTask error:", err)),
-
-    // 4. Certificate
     (async () => {
       try {
         const courseRef = doc(db, "courses", courseId);
@@ -318,8 +414,6 @@ export async function completeLesson(
         console.error("Certificate error:", certErr);
       }
     })(),
-
-    // 5. Achievements
     (async () => {
       try {
         const userSnapAfter = await getDoc(userRef);
@@ -371,7 +465,7 @@ export async function completeLesson(
   console.log(`[completeLesson] Returning immediately (side effects running in background).`);
 }
 
-// ============ CÁC HÀM KHÁC (giữ nguyên) ============
+// ============ CÁC HÀM KHÁC ============
 export async function isLessonCompleted(
   userId: string,
   courseId: string,
