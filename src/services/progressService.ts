@@ -23,6 +23,7 @@ import type { ResumeData } from "../types/progress";
 import { checkAndGenerateCertificate } from "./certificateService";
 import { checkAndUnlockAchievementsLegacy } from "./achievementService";
 import { checkAndCompleteDailyTask } from "./dailyGoalService";
+import { mergeSegments } from "../utils/videoTracking";
 
 // ============ TYPES ============
 export interface LessonProgress {
@@ -212,22 +213,6 @@ export async function getResumeData(
 }
 
 // ============ COMPLETION REQUIREMENTS CHECK ============
-function mergeSegments(segments: Array<{ start: number; end: number }>): Array<{ start: number; end: number }> {
-  if (!segments.length) return [];
-  const sorted = [...segments].sort((a, b) => a.start - b.start);
-  const merged: Array<{ start: number; end: number }> = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    const s = sorted[i];
-    const last = merged[merged.length - 1];
-    if (s.start <= last.end + 1) {
-      last.end = Math.max(last.end, s.end);
-    } else {
-      merged.push(s);
-    }
-  }
-  return merged;
-}
-
 export async function checkCompletionRequirements(
   userId: string,
   courseId: string,
@@ -238,16 +223,16 @@ export async function checkCompletionRequirements(
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const docSnap = await getDoc(doc(db, "progress", progressId));
   if (!docSnap.exists()) {
-    return { met: false, reason: 'Chưa có dữ liệu tiến độ' };
+    return { met: false, reason: "Chưa có dữ liệu tiến độ" };
   }
 
   const data = docSnap.data();
   const resumeData = data.resumeData || {};
 
   switch (lessonType) {
-    case 'video': {
+    case "video": {
       const tracking = resumeData.videoTracking;
-      if (!tracking) return { met: false, reason: 'Chưa có dữ liệu xem video' };
+      if (!tracking) return { met: false, reason: "Chưa có dữ liệu xem video" };
 
       const merged = mergeSegments(tracking.watchedSegments || []);
       const totalWatched = merged.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
@@ -260,12 +245,15 @@ export async function checkCompletionRequirements(
       if (tracking.skipCount > 3) {
         return { met: false, reason: `Vượt quá số lần skip cho phép (${tracking.skipCount}/3)` };
       }
-      return { met: true, details: { percent, skipCount: tracking.skipCount } };
+      if ((tracking.afkWarningCount ?? 0) > 3) {
+        return { met: false, reason: `Bị phát hiện AFK ${tracking.afkWarningCount} lần` };
+      }
+      return { met: true, details: { percent, skipCount: tracking.skipCount, afkWarnings: tracking.afkWarningCount } };
     }
 
-    case 'reading': {
+    case "reading": {
       const tracking = resumeData.readingTracking;
-      if (!tracking) return { met: false, reason: 'Chưa có dữ liệu đọc' };
+      if (!tracking) return { met: false, reason: "Chưa có dữ liệu đọc" };
 
       if (tracking.actualProgress < 80) {
         return { met: false, reason: `Đã đọc ${Math.round(tracking.actualProgress)}%, cần 80%` };
@@ -273,18 +261,25 @@ export async function checkCompletionRequirements(
       if (tracking.timeSpentSeconds < tracking.minTimeRequired) {
         return { met: false, reason: `Cần đọc ít nhất ${tracking.minTimeRequired} giây` };
       }
-      if (tracking.scrollSpikeCount > 3) {
-        return { met: false, reason: 'Phát hiện cuộn quá nhanh' };
+      if (!tracking.knowledgeCheckPassed) {
+        return { met: false, reason: "Chưa vượt qua kiểm tra nhanh" };
       }
+
+      if (tracking.scrollSpikeCount > tracking.maxScrollSpikeCount) {
+        console.warn(`[Reading] suspectedFastScroll: user ${userId}, lesson ${lessonId}, spikes=${tracking.scrollSpikeCount}`);
+      }
+      if (tracking.engagementScore !== undefined && tracking.engagementScore < 50) {
+        console.warn(`[Reading] Low engagement: user ${userId}, lesson ${lessonId}, score=${tracking.engagementScore}`);
+      }
+
       return { met: true, details: tracking };
     }
 
-    case 'flashcard': {
+    case "flashcard": {
       const progress = data.flashcardProgress;
       const viewedSet = resumeData.flashcardViewedSet || [];
-      if (!progress) return { met: false, reason: 'Chưa học flashcard' };
+      if (!progress) return { met: false, reason: "Chưa học flashcard" };
 
-      // ✅ Fix TypeScript: ép kiểu cho `c`
       const allMastered = Object.values(progress.cards).every((c: any) => c.mastered);
       if (!allMastered) {
         const masteredCount = Object.values(progress.cards).filter((c: any) => c.mastered).length;
@@ -298,12 +293,37 @@ export async function checkCompletionRequirements(
       return { met: true, details: { allMastered, allViewed } };
     }
 
-    case 'quiz': {
+    case "quiz": {
       const score = data.quizScore || 0;
-      if (score < 70) {
-        return { met: false, reason: `Điểm ${score}%, cần 70% để pass` };
+
+      let passingScore = 70;
+      try {
+        const courseRef = doc(db, "courses", courseId);
+        const courseSnap = await getDoc(courseRef);
+        if (courseSnap.exists()) {
+          const courseData = courseSnap.data();
+          const modules = courseData.modules || [];
+          for (const module of modules) {
+            const lessons = module.lessons || [];
+            for (const lesson of lessons) {
+              if (lesson.id === lessonId) {
+                if (lesson.content?.data?.passingScore !== undefined) {
+                  passingScore = lesson.content.data.passingScore;
+                }
+                break;
+              }
+            }
+            if (passingScore !== 70) break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[Quiz] Could not read passingScore for lesson ${lessonId}, using default 70`, err);
       }
-      return { met: true, details: { score } };
+
+      if (score < passingScore) {
+        return { met: false, reason: `Điểm ${score}%, cần ${passingScore}% để pass` };
+      }
+      return { met: true, details: { score, passingScore } };
     }
 
     default:
@@ -311,58 +331,65 @@ export async function checkCompletionRequirements(
   }
 }
 
-// ============ LESSON COMPLETION ============
-export async function completeLesson(
+// ============================================================================
+// DIRECT FIRESTORE WRITE (new implementation)
+// ============================================================================
+
+/**
+ * Client-side function to mark a lesson as complete.
+ * Uses Firestore transaction (atomic) and runs side effects after.
+ */
+export async function completeLessonClient(
   userId: string,
   courseId: string,
   moduleId: string,
   lessonId: string,
   xpReward: number,
-  lessonType: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard' = 'lesson'
+  lessonType: "lesson" | "quiz" | "reading" | "video" | "flashcard" = "lesson"
 ): Promise<void> {
-  console.log(`[completeLesson] Start: userId=${userId}, lessonId=${lessonId}, xpReward=${xpReward}`);
-
-  // ✅ Check completion requirements
-  const requirements = await checkCompletionRequirements(userId, courseId, moduleId, lessonId, lessonType);
-  if (!requirements.met) {
-    throw new Error(`Completion requirements not met: ${requirements.reason}`);
-  }
-
   const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
   const progressRef = doc(db, "progress", progressId);
   const userRef = doc(db, "users", userId);
 
-  // ✅ IDEMPOTENCY
-  const existingSnap = await getDoc(progressRef);
-  if (existingSnap.exists()) {
-    const existingData = existingSnap.data();
-    if (existingData.xpEarned && existingData.xpEarned > 0) {
-      console.log(`[completeLesson] Lesson ${lessonId} already has XP (${existingData.xpEarned}), skip.`);
-      return;
-    }
-  }
-
-  const activeEvent = await getActiveEvent();
-  let finalXPReward = xpReward;
-  if (activeEvent) {
-    finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
-    console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
-  }
-
+  // 1. Run transaction to update progress + user XP
   await runTransaction(db, async (transaction) => {
-    const userSnap = await transaction.get(userRef);
+    const [progressSnap, userSnap] = await Promise.all([
+      transaction.get(progressRef),
+      transaction.get(userRef),
+    ]);
+
     if (!userSnap.exists()) {
       throw new Error("User not found");
     }
 
-    const progressSnap = await transaction.get(progressRef);
+    // Idempotency: if already completed, skip write
     const existingData = progressSnap.exists() ? progressSnap.data() : null;
-
-    if (existingData && existingData.xpEarned && existingData.xpEarned > 0) {
-      console.log(`[completeLesson] Transaction: already has XP, skip.`);
+    if (existingData?.xpEarned && existingData.xpEarned > 0) {
+      console.log(`[completeLessonClient] Lesson ${lessonId} already completed, skipping.`);
       return;
     }
 
+    // Verify completion requirements (client-side, but with server data)
+    const requirements = await checkCompletionRequirements(
+      userId,
+      courseId,
+      moduleId,
+      lessonId,
+      lessonType
+    );
+    if (!requirements.met) {
+      throw new Error(`Completion requirements not met: ${requirements.reason}`);
+    }
+
+    // Apply event multiplier if active
+    const activeEvent = await getActiveEvent();
+    let finalXPReward = xpReward;
+    if (activeEvent) {
+      finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
+      console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
+    }
+
+    // Prepare progress document
     const updateData: any = {
       userId,
       courseId,
@@ -381,6 +408,7 @@ export async function completeLesson(
       updateData.startedAt = serverTimestamp();
     }
 
+    // Write both documents atomically
     transaction.set(progressRef, updateData, { merge: true });
     transaction.update(userRef, {
       totalXP: increment(finalXPReward),
@@ -388,15 +416,16 @@ export async function completeLesson(
     });
   });
 
-  console.log(`[completeLesson] Transaction committed, XP awarded.`);
-
-  // ===== SIDE EFFECTS (fire-and-forget) =====
+  // 2. Side effects (fire-and-forget, do not block main flow)
   Promise.allSettled([
-    updateUserStreak(userId).catch(err => console.error("Streak error:", err)),
-    addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(err => console.error("XPLog error:", err)),
-    checkAndCompleteDailyTask(userId, lessonType).catch(err => console.error("DailyTask error:", err)),
+    updateUserStreak(userId).catch((err) => console.error("Streak error:", err)),
+    addXPLog(userId, xpReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
+      (err) => console.error("XPLog error:", err)
+    ),
+    checkAndCompleteDailyTask(userId, lessonType).catch((err) => console.error("DailyTask error:", err)),
     (async () => {
       try {
+        // Certificate check
         const courseRef = doc(db, "courses", courseId);
         const courseSnap = await getDoc(courseRef);
         if (courseSnap.exists()) {
@@ -406,7 +435,7 @@ export async function completeLesson(
           const courseTitle = courseData.title || "Untitled";
           const userSnap = await getDoc(userRef);
           const userName = userSnap.exists()
-            ? (userSnap.data().displayName || userSnap.data().name || "User")
+            ? userSnap.data().displayName || userSnap.data().name || "User"
             : "User";
           await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
         }
@@ -416,6 +445,7 @@ export async function completeLesson(
     })(),
     (async () => {
       try {
+        // Achievements (legacy)
         const userSnapAfter = await getDoc(userRef);
         const userDataAfter = userSnapAfter.data() || {};
         const completedLessonsQuery = query(
@@ -432,18 +462,29 @@ export async function completeLesson(
           where("isActive", "==", true)
         );
         const enrollSnap = await getDocs(enrollQuery);
-        const courseIds = enrollSnap.docs.map(d => d.data().courseId);
+        const courseIds = enrollSnap.docs.map((d) => d.data().courseId);
+
+        const completedPerCourse: Record<string, number> = {};
+        completedLessonsSnap.forEach((docSnap) => {
+          const p = docSnap.data();
+          const cid = p.courseId;
+          if (cid) completedPerCourse[cid] = (completedPerCourse[cid] || 0) + 1;
+        });
+
         let completedCoursesCount = 0;
-        for (const cid of courseIds) {
-          const progressCount = await getDocs(query(
-            collection(db, "progress"),
-            where("userId", "==", userId),
-            where("courseId", "==", cid),
-            where("status", "==", "completed")
-          ));
-          const courseDoc = await getDoc(doc(db, "courses", cid));
-          const total = courseDoc.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
-          if (progressCount.size === total && total > 0) completedCoursesCount++;
+        const batchSize = 30;
+        for (let i = 0; i < courseIds.length; i += batchSize) {
+          const batchIds = courseIds.slice(i, i + batchSize);
+          const courseRefs = batchIds.map((cid) => doc(db, "courses", cid));
+          const courseSnaps = await Promise.all(courseRefs.map((ref) => getDoc(ref)));
+          courseSnaps.forEach((snap, idx) => {
+            if (snap.exists()) {
+              const total =
+                snap.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
+              const completed = completedPerCourse[batchIds[idx]] || 0;
+              if (total > 0 && completed === total) completedCoursesCount++;
+            }
+          });
         }
 
         const eventData = {
@@ -460,9 +501,27 @@ export async function completeLesson(
         console.error("Achievement error:", achErr);
       }
     })(),
-  ]).catch(err => console.error("Side effects error:", err));
+  ]).catch((err) => console.error("Side effects error:", err));
 
-  console.log(`[completeLesson] Returning immediately (side effects running in background).`);
+  console.log(`[completeLessonClient] Lesson ${lessonId} completed successfully.`);
+}
+
+// ============================================================================
+// DEPRECATED: keep as alias to completeLessonClient
+// ============================================================================
+/**
+ * @deprecated Use completeLessonClient() instead.
+ */
+export async function completeLesson(
+  userId: string,
+  courseId: string,
+  moduleId: string,
+  lessonId: string,
+  xpReward: number,
+  lessonType: "lesson" | "quiz" | "reading" | "video" | "flashcard" = "lesson"
+): Promise<void> {
+  console.warn("[DEPRECATED] completeLesson() called – delegating to completeLessonClient().");
+  return completeLessonClient(userId, courseId, moduleId, lessonId, xpReward, lessonType);
 }
 
 // ============ CÁC HÀM KHÁC ============
@@ -548,25 +607,25 @@ export interface CourseProgress {
 export const getUserOverallProgress = async (userId: string): Promise<CourseProgress[]> => {
   const enrollSnap = await getDocs(
     query(
-      collection(db, 'enrollments'),
-      where('userId', '==', userId),
-      where('isActive', '==', true)
+      collection(db, "enrollments"),
+      where("userId", "==", userId),
+      where("isActive", "==", true)
     )
   );
   if (enrollSnap.empty) return [];
 
-  const courseIds = enrollSnap.docs.map(d => d.data().courseId);
+  const courseIds = enrollSnap.docs.map((d) => d.data().courseId);
 
   const progressSnap = await getDocs(
     query(
-      collection(db, 'progress'),
-      where('userId', '==', userId),
-      where('status', '==', 'completed')
+      collection(db, "progress"),
+      where("userId", "==", userId),
+      where("status", "==", "completed")
     )
   );
 
   const completedPerCourse: Record<string, number> = {};
-  progressSnap.forEach(doc => {
+  progressSnap.forEach((doc) => {
     const data = doc.data();
     const cid = data.courseId;
     if (cid) {
@@ -580,17 +639,17 @@ export const getUserOverallProgress = async (userId: string): Promise<CourseProg
   for (let i = 0; i < courseIds.length; i += batchSize) {
     const batchIds = courseIds.slice(i, i + batchSize);
     const courseQuery = query(
-      collection(db, 'courses'),
-      where('__name__', 'in', batchIds)
+      collection(db, "courses"),
+      where("__name__", "in", batchIds)
     );
     const courseSnap = await getDocs(courseQuery);
     const courseMap: Record<string, any> = {};
-    courseSnap.forEach(doc => {
+    courseSnap.forEach((doc) => {
       const data = doc.data();
       const modules = data.modules || [];
       const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
       courseMap[doc.id] = {
-        title: data.title || 'Unknown',
+        title: data.title || "Unknown",
         totalLessons,
       };
     });

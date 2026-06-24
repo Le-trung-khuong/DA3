@@ -21,6 +21,7 @@ export interface VideoTracking {
   afkWarningCount: number;
   isAfk: boolean;
   lastActivityAt: number;
+  progressLocked?: boolean; // thêm mới
 }
 
 export interface ReadingTracking {
@@ -32,6 +33,16 @@ export interface ReadingTracking {
   scrollSpikeCount: number;
   maxScrollSpikeCount: number;
   lastActivityAt: number;
+  // Added fields for reading tracking
+  readWordsCount: number;       // số từ đã đọc thực tế (hiện không dùng, giữ cho tương thích)
+  knowledgeCheckPassed: boolean; // đã vượt qua kiểm tra nhanh chưa
+
+  // ----- Các trường mới cho Engagement Score -----
+  engagementScore: number;       // điểm tương tác 0-100
+  sectionInteraction: number;    // số heading đã tương tác
+  totalSections: number;         // tổng số heading
+  suspectedFastScroll: boolean;  // flag nghi ngờ cuộn nhanh
+  focusTimeSeconds: number;      // thời gian tab active (giây)
 }
 
 // ---------- RESUME DATA ----------
@@ -43,6 +54,7 @@ export interface ResumeData {
   
   // Reading
   readingScrollPercent?: number;
+  readingScrollTop?: number;      // lưu vị trí scroll tuyệt đối để resume
   readingTracking?: ReadingTracking;
   
   // Flashcard

@@ -1,5 +1,5 @@
 // src/components/player/FlashcardLesson.tsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, RotateCw, CheckCircle, RefreshCw, BarChart2 } from "lucide-react";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveFlashcardProgress, saveResumeData, getResumeData } from "../../services/progressService";
@@ -134,9 +134,16 @@ export function FlashcardLesson({
   const allMastered = masteredCount === totalCards;
   const allViewed = viewedCardIds.size === totalCards;
 
-  // Save flashcard progress (không set status="completed")
+  // ✅ HIGH-6: Debounce saveFlashcardProgress
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    const save = async () => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
       const flashcardProgress = {
         lessonId,
         cards: Object.fromEntries(
@@ -154,8 +161,14 @@ export function FlashcardLesson({
         lastActivityAt: new Date(),
       };
       await saveFlashcardProgress(userId, courseId, moduleId, lessonId, flashcardProgress);
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
     };
-    save();
   }, [mastered, cards, userId, courseId, moduleId, lessonId]);
 
   // Initialize SRS khi master tất cả
@@ -168,7 +181,6 @@ export function FlashcardLesson({
   // Handlers với guard
   const handleFlip = useCallback(() => {
     if (isProcessing) return;
-    // Khi lật thẻ (từ front sang back), đánh dấu đã xem
     if (!flipped) {
       setViewedCardIds((prev) => new Set(prev).add(currentCard.id));
     }
@@ -219,7 +231,6 @@ export function FlashcardLesson({
         correct: prev.correct + (difficulty !== "again" ? 1 : 0),
       }));
 
-      // Xử lý next card
       if (currentIndex + 1 < totalCards) {
         setCurrentIndex((prev) => prev + 1);
         setFlipped(false);
@@ -439,7 +450,20 @@ export function FlashcardLesson({
       </div>
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
-        <button onClick={() => { setMode("learn"); setCurrentIndex(0); setFlipped(false); setMastered(new Set()); setReviewQueue([]); setViewedCardIds(new Set()); }} style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}>
+        {/* ✅ UX-5: Confirmation cho reset session */}
+        <button
+          onClick={() => {
+            if (window.confirm('Bạn có chắc muốn reset toàn bộ tiến độ flashcard? Hành động này không thể hoàn tác.')) {
+              setMode("learn");
+              setCurrentIndex(0);
+              setFlipped(false);
+              setMastered(new Set());
+              setReviewQueue([]);
+              setViewedCardIds(new Set());
+            }
+          }}
+          style={{ background: "none", border: "none", color: "#6C63FF", fontSize: 12, cursor: "pointer" }}
+        >
           <RefreshCw size={12} /> Reset session
         </button>
         <br />

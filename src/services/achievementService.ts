@@ -36,7 +36,6 @@ export interface UserAchievement {
   progress: number;
 }
 
-// ✅ Cache với TTL 5 phút
 let achievementDefsCache: { data: AchievementDef[]; timestamp: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -54,13 +53,17 @@ export async function getAchievementDefinitions(): Promise<AchievementDef[]> {
 export async function getUserAchievements(userId: string): Promise<UserAchievement[]> {
   const q = query(collection(db, "userAchievements"), where("userId", "==", userId));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({
-    userId: doc.data().userId,
-    achievementId: doc.data().achievementId,
-    unlockedAt: doc.data().unlockedAt.toDate(),
-    claimedAt: doc.data().claimedAt?.toDate() || null,
-    progress: doc.data().progress,
-  }));
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      userId: data.userId,
+      achievementId: data.achievementId,
+      // ✅ NEW-2: Null guard cho unlockedAt
+      unlockedAt: data.unlockedAt ? data.unlockedAt.toDate() : new Date(0),
+      claimedAt: data.claimedAt?.toDate() || null,
+      progress: data.progress,
+    };
+  });
 }
 
 export async function isAchievementUnlocked(userId: string, achievementId: string): Promise<boolean> {
@@ -69,7 +72,6 @@ export async function isAchievementUnlocked(userId: string, achievementId: strin
   return snap.exists() && snap.data().unlockedAt !== undefined;
 }
 
-// ✅ UNLOCK với transaction (FIX BUG #5)
 export async function unlockAchievement(
   userId: string,
   achievementDef: AchievementDef,
@@ -83,7 +85,7 @@ export async function unlockAchievement(
     if (snap.exists()) {
       const data = snap.data();
       if (data.unlockedAt !== undefined && data.unlockedAt !== null) {
-        return; // đã unlock
+        return;
       }
     }
     transaction.set(userAchievementRef, {
@@ -98,7 +100,6 @@ export async function unlockAchievement(
   await createAchievementNotification(userId, achievementDef);
 }
 
-// ✅ CLAIM REWARD (giữ nguyên)
 export async function claimAchievement(
   userId: string,
   achievementId: string
@@ -156,7 +157,7 @@ async function createAchievementNotification(userId: string, achievement: Achiev
   );
 }
 
-// ✅ Check and unlock for Pomodoro
+// ✅ NEW-1: Parallelize unlockAchievement calls
 export async function checkAndUnlockAchievements(
   userId: string,
   stats: {
@@ -170,6 +171,7 @@ export async function checkAndUnlockAchievements(
   const defs = await getAchievementDefinitions();
   const unlockedMap = new Map((await getUserAchievements(userId)).map(a => [a.achievementId, a]));
   const newlyUnlocked: AchievementDef[] = [];
+  const unlockPromises: Promise<void>[] = [];
 
   for (const def of defs) {
     const existing = unlockedMap.get(def.id);
@@ -198,15 +200,22 @@ export async function checkAndUnlockAchievements(
     }
     
     if (isUnlocked) {
-      await unlockAchievement(userId, def, 100);
-      newlyUnlocked.push(def);
+      // ✅ Thêm vào promise array thay vì await
+      unlockPromises.push(unlockAchievement(userId, def, 100).then(() => {
+        newlyUnlocked.push(def);
+      }));
     }
+  }
+
+  // ✅ Chạy tất cả unlock song song
+  if (unlockPromises.length > 0) {
+    await Promise.all(unlockPromises);
   }
   
   return newlyUnlocked;
 }
 
-// Legacy function for backward compatibility
+// Legacy function with same parallel fix
 export async function checkAndUnlockAchievementsLegacy(
   userId: string,
   eventType: string,
@@ -216,6 +225,7 @@ export async function checkAndUnlockAchievementsLegacy(
   const defs = await getAchievementDefinitions();
   const unlockedMap = new Map((await getUserAchievements(userId)).map(a => [a.achievementId, a]));
   const newlyUnlocked: AchievementDef[] = [];
+  const unlockPromises: Promise<void>[] = [];
 
   for (const def of defs) {
     const existing = unlockedMap.get(def.id);
@@ -223,9 +233,14 @@ export async function checkAndUnlockAchievementsLegacy(
     if (existing && existing.unlockedAt) continue;
     if (def.criteria.type !== eventType) continue;
     if (currentValue >= def.criteria.threshold) {
-      await unlockAchievement(userId, def, currentValue);
-      newlyUnlocked.push(def);
+      unlockPromises.push(unlockAchievement(userId, def, currentValue).then(() => {
+        newlyUnlocked.push(def);
+      }));
     }
+  }
+
+  if (unlockPromises.length > 0) {
+    await Promise.all(unlockPromises);
   }
   return newlyUnlocked;
 }

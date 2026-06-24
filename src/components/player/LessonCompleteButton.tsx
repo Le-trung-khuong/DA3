@@ -1,7 +1,7 @@
 // src/components/player/LessonCompleteButton.tsx
 import React, { useState, useRef } from "react";
 import { CheckCircle, Loader, AlertCircle } from "lucide-react";
-import { completeLesson } from "../../services/progressService";
+import { completeLessonClient } from "../../services/progressService";
 
 interface LessonCompleteButtonProps {
   userId: string;
@@ -14,7 +14,6 @@ interface LessonCompleteButtonProps {
   isCompleted?: boolean;
   xpEarned?: number;
   lessonType?: 'lesson' | 'quiz' | 'reading' | 'video' | 'flashcard';
-  // Additional requirements
   requirementsMet?: boolean;
   requirementMessage?: string;
 }
@@ -37,27 +36,28 @@ export function LessonCompleteButton({
   const [localCompleted, setLocalCompleted] = useState(false);
   const loadingRef = useRef(false);
 
-  const showCompleted = (isCompleted && xpEarned > 0) || localCompleted;
+  // ✅ HIGH-4: showCompleted = isCompleted OR localCompleted (bỏ xpEarned > 0)
+  const showCompleted = isCompleted || localCompleted;
 
   const handleComplete = async () => {
     if (loadingRef.current || showCompleted || disabled) return;
-    
-    // Check requirements
+
     if (!requirementsMet) {
       alert(requirementMessage || 'Bạn chưa đáp ứng đủ điều kiện hoàn thành bài học.');
       return;
     }
-    
+
     loadingRef.current = true;
     setLoading(true);
 
     try {
-      await completeLesson(userId, courseId, moduleId, lessonId, xpReward, lessonType);
+      // ✅ CRITICAL-4: Gọi Cloud Function thay vì direct Firestore write
+      await completeLessonClient(userId, courseId, moduleId, lessonId, xpReward, lessonType);
       setLocalCompleted(true);
       onComplete?.();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to mark lesson complete:", error);
-      alert("Không thể cập nhật tiến độ. Vui lòng thử lại.");
+      alert(error.message || "Không thể cập nhật tiến độ. Vui lòng thử lại.");
     } finally {
       loadingRef.current = false;
       setLoading(false);
@@ -69,7 +69,7 @@ export function LessonCompleteButton({
       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#45f1c5" }}>
         <CheckCircle size={20} />
         <span style={{ fontSize: 14, fontWeight: 600 }}>
-          Completed! +{xpEarned || xpReward} XP
+          Completed! {xpEarned > 0 && `+${xpEarned} XP`}
         </span>
       </div>
     );
@@ -84,8 +84,8 @@ export function LessonCompleteButton({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          background: loading || !requirementsMet 
-            ? "rgba(255,255,255,0.05)" 
+          background: loading || !requirementsMet
+            ? "rgba(255,255,255,0.05)"
             : "linear-gradient(135deg,#6C63FF,#9B59B6)",
           border: "none",
           padding: "10px 24px",

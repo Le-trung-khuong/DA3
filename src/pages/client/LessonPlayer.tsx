@@ -49,13 +49,15 @@ export default function LessonPlayer() {
   const userId = currentUser?.uid;
 
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
-  const { isLessonCompleted, getFlashcardProgress, refreshProgress } = useProgress(userId, courseId);
+  const { isLessonCompleted, getFlashcardProgress } = useProgress(userId, courseId);
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [moduleTitle, setModuleTitle] = useState("");
+  const [lessonLoading, setLessonLoading] = useState(true);
 
   useEffect(() => {
     if (course && moduleId && lessonId) {
+      setLessonLoading(true);
       const mod = course.modules.find((m) => m.id === moduleId);
       if (mod) {
         setModuleTitle(mod.title);
@@ -68,15 +70,17 @@ export default function LessonPlayer() {
       } else {
         navigate(`/courses/${courseId}`);
       }
+      setLessonLoading(false);
     }
   }, [course, moduleId, lessonId, navigate]);
 
+  // ✅ HIGH-7: Remove redundant refreshProgress, onSnapshot tự update
   const handleLessonComplete = async () => {
-    await refreshProgress();
     navigate(`/learn/${courseId}/${moduleId}/${lessonId}`, { replace: true });
   };
 
-  if (courseLoading) {
+  // ✅ UX-6: Separate loading state
+  if (courseLoading || lessonLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
         <Loader size={36} color="#6C63FF" style={{ animation: "spin 0.8s linear infinite" }} />

@@ -1,3 +1,4 @@
+// src/services/certificateService.ts
 import { db } from "../utils/config";
 import {
   collection,
@@ -9,6 +10,7 @@ import {
   where,
   serverTimestamp,
   Timestamp,
+  runTransaction,
 } from "firebase/firestore";
 import { getCourseProgress } from "./progressService";
 import { getUserEnrolledCourses } from "./enrollmentService";
@@ -50,13 +52,10 @@ export async function isCourseCompleted(
  * Kiểm tra xem đã có certificate cho khóa học này chưa
  */
 export async function hasCertificate(userId: string, courseId: string): Promise<boolean> {
-  const q = query(
-    collection(db, "certificates"),
-    where("userId", "==", userId),
-    where("courseId", "==", courseId)
-  );
-  const snap = await getDocs(q);
-  return !snap.empty;
+  const certId = `${userId}_${courseId}`;
+  const certRef = doc(db, "certificates", certId);
+  const snap = await getDoc(certRef);
+  return snap.exists();
 }
 
 /**
@@ -90,7 +89,7 @@ export async function createCertificate(
 
 /**
  * Hàm chính: kiểm tra và sinh chứng chỉ nếu đủ điều kiện
- * Gọi sau mỗi lần completeLesson
+ * ✅ CRITICAL-3: Dùng deterministic ID + transaction để tránh duplicate
  */
 export async function checkAndGenerateCertificate(
   userId: string,
@@ -99,18 +98,74 @@ export async function checkAndGenerateCertificate(
   userName: string,
   totalLessons: number
 ): Promise<Certificate | null> {
-  // 1. Kiểm tra đã có certificate chưa
-  const existing = await hasCertificate(userId, courseId);
-  if (existing) return null;
+  const certId = `${userId}_${courseId}`;
+  const certRef = doc(db, "certificates", certId);
 
-  // 2. Kiểm tra hoàn thành 100%
-  const completed = await isCourseCompleted(userId, courseId, totalLessons);
-  if (!completed) return null;
+  try {
+    const result = await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(certRef);
+      if (existing.exists()) {
+        const data = existing.data();
+        return {
+          exists: true,
+          certificate: {
+            id: certId,
+            userId: data.userId,
+            courseId: data.courseId,
+            courseTitle: data.courseTitle,
+            userName: data.userName,
+            issuedAt: data.issuedAt?.toDate?.() || new Date(),
+            certificateId: data.certificateId || generateCertificateId(userId, courseId),
+          }
+        };
+      }
 
-  // 3. Tạo certificate
-  const cert = await createCertificate(userId, courseId, courseTitle, userName);
-  console.log(`🎓 Certificate issued for ${userName} on course "${courseTitle}"`);
-  return cert;
+      const completed = await isCourseCompleted(userId, courseId, totalLessons);
+      if (!completed) {
+        return { exists: false, completed: false };
+      }
+
+      const certificateId = generateCertificateId(userId, courseId);
+      transaction.set(certRef, {
+        userId,
+        courseId,
+        courseTitle,
+        userName,
+        issuedAt: serverTimestamp(),
+        certificateId,
+      });
+
+      return {
+        exists: false,
+        completed: true,
+        certificate: {
+          id: certId,
+          userId,
+          courseId,
+          courseTitle,
+          userName,
+          issuedAt: new Date(),
+          certificateId,
+        }
+      };
+    });
+
+    if (result.exists) {
+      console.log(`🎓 Certificate already exists for ${userName} on course "${courseTitle}"`);
+      return result.certificate || null;
+    }
+
+    if (!result.completed) {
+      return null;
+    }
+
+    console.log(`🎓 Certificate issued for ${userName} on course "${courseTitle}"`);
+    return result.certificate || null;
+
+  } catch (err) {
+    console.error("Certificate transaction error:", err);
+    return null;
+  }
 }
 
 /**

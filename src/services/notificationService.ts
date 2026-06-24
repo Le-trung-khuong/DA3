@@ -15,26 +15,18 @@ import {
   where,
   orderBy,
   getDocs,
+  getDoc, // ✅ THÊM getDoc VÀO IMPORT
   serverTimestamp,
   Timestamp,
   limit,
   writeBatch,
   onSnapshot,
+  increment,
 } from "firebase/firestore";
 import type { Notification, NotificationType } from "../types/notification";
 
-// ============ SEND NOTIFICATION TO SINGLE USER ============
+// ============ SEND NOTIFICATION ============
 
-/**
- * Gửi notification đến một user cụ thể
- * @param userId - ID của người nhận (hoặc "all" cho broadcast)
- * @param type - Loại thông báo (payment_success, refund, course_enrolled, ...)
- * @param title - Tiêu đề thông báo
- * @param body - Nội dung thông báo
- * @param link - Đường dẫn khi click vào thông báo (tuỳ chọn)
- * @param metadata - Dữ liệu bổ sung (transactionId, courseId, ...)
- * @returns ID của document notification vừa tạo
- */
 export async function sendNotification(
   userId: string,
   type: NotificationType,
@@ -54,20 +46,18 @@ export async function sendNotification(
     metadata: metadata || {},
   };
   const docRef = await addDoc(collection(db, "notifications"), notificationData);
+
+  if (userId !== "all") {
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      unreadCount: increment(1),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
   return docRef.id;
 }
 
-// ============ BROADCAST TO ALL USERS ============
-
-/**
- * Gửi notification đến TẤT CẢ user (userId = "all")
- * Client sẽ filter để hiển thị (userId === currentUser.uid || userId === "all")
- * @param type - Loại thông báo
- * @param title - Tiêu đề thông báo
- * @param body - Nội dung thông báo
- * @param link - Đường dẫn khi click
- * @param metadata - Dữ liệu bổ sung
- */
 export async function broadcastNotification(
   type: NotificationType,
   title: string,
@@ -80,65 +70,71 @@ export async function broadcastNotification(
 
 // ============ MARK AS READ ============
 
-/**
- * Đánh dấu một notification là đã đọc
- * @param notificationId - ID của notification cần đánh dấu
- */
 export async function markNotificationAsRead(notificationId: string): Promise<void> {
   const notifRef = doc(db, "notifications", notificationId);
-  await updateDoc(notifRef, { isRead: true });
+  const notifSnap = await getDoc(notifRef); // ✅ getDoc đã được import
+
+  if (notifSnap.exists()) {
+    const data = notifSnap.data();
+    if (!data.isRead) {
+      await updateDoc(notifRef, { isRead: true });
+
+      if (data.userId && data.userId !== "all") {
+        const userRef = doc(db, "users", data.userId);
+        await updateDoc(userRef, {
+          unreadCount: increment(-1),
+        });
+      }
+    }
+  }
 }
 
-/**
- * Đánh dấu tất cả notification của user là đã đọc
- * @param userId - ID của user hiện tại
- */
 export async function markAllNotificationsAsRead(userId: string): Promise<void> {
-  // Lấy tất cả notification chưa đọc của user này (bao gồm broadcast)
   const q = query(
     collection(db, "notifications"),
     where("userId", "in", [userId, "all"]),
     where("isRead", "==", false)
   );
   const snapshot = await getDocs(q);
-  
+
   if (snapshot.empty) return;
-  
-  const batch = writeBatch(db);
-  snapshot.forEach((doc) => {
-    batch.update(doc.ref, { isRead: true });
+
+  const BATCH_SIZE = 400;
+  const docs = snapshot.docs;
+
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const chunk = docs.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((doc) => {
+      batch.update(doc.ref, { isRead: true });
+    });
+    await batch.commit();
+  }
+
+  const userRef = doc(db, "users", userId);
+  await updateDoc(userRef, {
+    unreadCount: 0,
   });
-  await batch.commit();
 }
 
-// ============ DELETE NOTIFICATION ============
-
-/**
- * Xóa notification (thường chỉ dùng cho admin)
- * @param notificationId - ID của notification cần xóa
- */
 export async function deleteNotification(notificationId: string): Promise<void> {
   await deleteDoc(doc(db, "notifications", notificationId));
 }
 
-/**
- * Xóa tất cả notification cũ hơn ngày chỉ định (cleanup cho admin)
- * @param daysOld - Số ngày, mặc định 90 ngày
- */
 export async function deleteOldNotifications(daysOld = 90): Promise<void> {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysOld);
   const cutoffTimestamp = Timestamp.fromDate(cutoffDate);
-  
+
   const q = query(
     collection(db, "notifications"),
     where("createdAt", "<=", cutoffTimestamp),
     orderBy("createdAt", "desc")
   );
   const snapshot = await getDocs(q);
-  
+
   if (snapshot.empty) return;
-  
+
   const batch = writeBatch(db);
   snapshot.forEach((doc) => {
     batch.delete(doc.ref);
@@ -146,15 +142,8 @@ export async function deleteOldNotifications(daysOld = 90): Promise<void> {
   await batch.commit();
 }
 
-// ============ GET NOTIFICATIONS (non-realtime, dùng cho page) ============
+// ============ GET NOTIFICATIONS ============
 
-/**
- * Lấy danh sách notification của user (dùng cho page, không realtime)
- * @param userId - ID của user
- * @param limitCount - Số lượng tối đa, mặc định 50
- * @param beforeDate - Lấy các notification cũ hơn ngày này (dùng cho pagination)
- * @returns Mảng notification
- */
 export async function getUserNotifications(
   userId: string,
   limitCount = 50,
@@ -165,7 +154,7 @@ export async function getUserNotifications(
     orderBy("createdAt", "desc"),
     limit(limitCount),
   ];
-  
+
   if (beforeDate) {
     constraints = [
       where("userId", "in", [userId, "all"]),
@@ -174,10 +163,10 @@ export async function getUserNotifications(
       limit(limitCount),
     ];
   }
-  
+
   const q = query(collection(db, "notifications"), ...constraints);
   const snapshot = await getDocs(q);
-  
+
   return snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
@@ -194,10 +183,6 @@ export async function getUserNotifications(
   });
 }
 
-/**
- * Lấy danh sách tất cả notification (chỉ dành cho admin)
- * @param limitCount - Số lượng tối đa
- */
 export async function getAllNotifications(limitCount = 100): Promise<Notification[]> {
   const q = query(
     collection(db, "notifications"),
@@ -205,7 +190,7 @@ export async function getAllNotifications(limitCount = 100): Promise<Notificatio
     limit(limitCount)
   );
   const snapshot = await getDocs(q);
-  
+
   return snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
@@ -222,45 +207,30 @@ export async function getAllNotifications(limitCount = 100): Promise<Notificatio
   });
 }
 
-// ============ COUNT UNREAD NOTIFICATIONS ============
+// ============ COUNT UNREAD ============
 
-/**
- * Đếm số notification chưa đọc của user (dùng cho badge)
- * @param userId - ID của user
- * @returns Số lượng notification chưa đọc
- */
 export async function countUnreadNotifications(userId: string): Promise<number> {
-  const q = query(
-    collection(db, "notifications"),
-    where("userId", "in", [userId, "all"]),
-    where("isRead", "==", false)
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.size;
+  const userRef = doc(db, "users", userId);
+  const snap = await getDoc(userRef); // ✅ getDoc đã được import
+  if (snap.exists()) {
+    return snap.data().unreadCount || 0;
+  }
+  return 0;
 }
 
-// ============ HELPER: GET UNREAD COUNT (REALTIME) ============
-// Lưu ý: Hàm này trả về unsubscribe function, dùng trong hook
+// ============ REALTIME SUBSCRIPTION ============
 
-/**
- * Lắng nghe realtime số lượng notification chưa đọc
- * @param userId - ID của user
- * @param callback - Hàm nhận số lượng chưa đọc
- * @returns Unsubscribe function
- */
 export function subscribeToUnreadCount(
   userId: string,
   callback: (unreadCount: number) => void
 ): () => void {
-  const q = query(
-    collection(db, "notifications"),
-    where("userId", "in", [userId, "all"]),
-    where("isRead", "==", false)
-  );
-  
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    callback(snapshot.size);
+  const userRef = doc(db, "users", userId);
+  const unsubscribe = onSnapshot(userRef, (snap) => {
+    if (snap.exists()) {
+      callback(snap.data().unreadCount || 0);
+    } else {
+      callback(0);
+    }
   });
-  
   return unsubscribe;
 }

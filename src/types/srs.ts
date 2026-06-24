@@ -1,3 +1,4 @@
+// src/types/srs.ts
 export interface SRSCard {
   cardId: string;
   userId: string;
@@ -15,4 +16,5 @@ export interface SRSReviewResult {
   newEaseFactor: number;
   newInterval: number;
   nextReviewDate: Date;
+  newStage: 0 | 1 | 2 | 3;
 }
