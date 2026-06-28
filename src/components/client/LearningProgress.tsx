@@ -12,6 +12,24 @@ const LearningProgress: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hàm gộp dữ liệu theo courseId để đảm bảo key duy nhất
+  const aggregateProgress = (data: CourseProgress[]): CourseProgress[] => {
+    const map = new Map<string, CourseProgress>();
+    data.forEach(item => {
+      if (map.has(item.courseId)) {
+        // Nếu đã có, lấy bản ghi có percent cao nhất (có thể điều chỉnh logic)
+        const existing = map.get(item.courseId)!;
+        if (item.percent > existing.percent) {
+          map.set(item.courseId, { ...item });
+        }
+        // Bạn có thể đổi thành cộng dồn hoặc tính trung bình tùy nhu cầu
+      } else {
+        map.set(item.courseId, { ...item });
+      }
+    });
+    return Array.from(map.values());
+  };
+
   // Hàm fetch dữ liệu với debounce
   const fetchProgress = useCallback(async (force = false) => {
     if (!currentUser) {
@@ -20,7 +38,6 @@ const LearningProgress: React.FC = () => {
       return;
     }
 
-    // Debounce: nếu không force, đợi 500ms trước khi fetch thực sự
     if (!force) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => fetchProgress(true), 500);
@@ -30,7 +47,9 @@ const LearningProgress: React.FC = () => {
     try {
       setLoading(true);
       const data = await getUserOverallProgress(currentUser.uid);
-      setProgress(data);
+      // Gộp dữ liệu trước khi set state
+      const aggregated = aggregateProgress(data);
+      setProgress(aggregated);
     } catch (err) {
       console.error('Failed to load learning progress:', err);
     } finally {
@@ -46,17 +65,14 @@ const LearningProgress: React.FC = () => {
       return;
     }
 
-    // Load lần đầu
     fetchProgress(true);
 
-    // Real-time listener
     const q = query(
       collection(db, 'progress'),
       where('userId', '==', currentUser.uid),
       where('status', '==', 'completed')
     );
     const unsubscribe = onSnapshot(q, () => {
-      // Debounce fetch khi có thay đổi
       fetchProgress();
     }, (err) => {
       console.error('LearningProgress real-time error:', err);
@@ -111,6 +127,7 @@ const LearningProgress: React.FC = () => {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {progress.map(p => (
+          // Bây giờ key là courseId duy nhất vì đã gộp dữ liệu
           <div key={p.courseId}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#E4E1EE' }}>
               <span>{p.courseName}</span>
