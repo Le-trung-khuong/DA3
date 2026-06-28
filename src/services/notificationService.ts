@@ -135,11 +135,18 @@ export async function deleteOldNotifications(daysOld = 90): Promise<void> {
 
   if (snapshot.empty) return;
 
-  const batch = writeBatch(db);
-  snapshot.forEach((doc) => {
-    batch.delete(doc.ref);
-  });
-  await batch.commit();
+  // ✅ C6: Batch chunking để tránh vượt quá 500 operations
+  const BATCH_SIZE = 400;
+  const docs = snapshot.docs;
+
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const chunk = docs.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+  }
 }
 
 // ============ GET NOTIFICATIONS ============

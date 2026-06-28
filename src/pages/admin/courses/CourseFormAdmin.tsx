@@ -35,6 +35,9 @@ import { db } from "../../../utils/config";
 // ─── Import custom hooks từ thư mục hooks ─────────────────────────────
 import { useDocument } from "../../../hooks/useFirestore";
 
+// ─── Auth hook ────────────────────────────────────────────────────────────────
+import { useAuth } from "../../../contexts/AuthContext";
+
 // ─── Lucide icons ────────────────────────────────────────────────────────────
 import {
   ArrowLeft,
@@ -66,10 +69,10 @@ import {
   PauseCircle,
 } from "lucide-react";
 
+import { createCourseCommunity } from "../../../services/chatService";
+import { isUserPro } from "../../../services/subscriptionService";
+
 // ─── Editor components lazy load ─────────────────────────────────────
-// NẾU các editor được export default, dùng:
-// const QuizEditor = lazy(() => import("../../../components/admin/QuizEditor"));
-// NẾU các editor được export named (ví dụ: export const QuizEditor = ...), dùng:
 const QuizEditor = lazy(() =>
   import("../../../components/admin/QuizEditor").then((module) => ({
     default: module.QuizEditor,
@@ -158,6 +161,8 @@ interface CourseFormData {
   language: string;
   tags: string[];
   modules: Module[];
+  enableCommunity: boolean;
+  communityRoomId?: string;
 }
 
 interface ValidationErrors {
@@ -228,6 +233,8 @@ const defaultForm = (): CourseFormData => ({
   language: "English",
   tags: [],
   modules: [emptyModule(1)],
+  enableCommunity: false,
+  communityRoomId: undefined,
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -502,7 +509,7 @@ function ThumbnailUploader({ url, onChange }: ThumbnailUploaderProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LESSON EDITOR (đã tích hợp editors cho quiz, reading, flashcard)
+// LESSON EDITOR
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface LessonEditorProps {
@@ -683,7 +690,7 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DYNAMIC MODULE LIST (giữ nguyên)
+// DYNAMIC MODULE LIST
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface DynamicModuleListProps {
@@ -1057,6 +1064,17 @@ export default function CourseFormAdmin() {
   const navigate = useNavigate();
   const isEdit = Boolean(courseId);
 
+  // ─── Auth ──────────────────────────────────────────────────────────────────
+  const { currentUser, role } = useAuth();
+
+  const [isPro, setIsPro] = useState(false);
+
+  useEffect(() => {
+    if (currentUser) {
+      isUserPro(currentUser.uid).then(setIsPro).catch(() => setIsPro(false));
+    }
+  }, [currentUser]);
+
   const [form, setForm] = useState<CourseFormData>(defaultForm());
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -1076,6 +1094,8 @@ export default function CourseFormAdmin() {
     language: string;
     tags: string[];
     modules: Module[];
+    enableCommunity?: boolean;
+    communityRoomId?: string;
   }>("courses", isEdit ? courseId ?? null : null);
 
   useEffect(() => {
@@ -1093,6 +1113,8 @@ export default function CourseFormAdmin() {
         language: existingCourse.language || "English",
         tags: existingCourse.tags || [],
         modules: existingCourse.modules?.length ? existingCourse.modules : [emptyModule(1)],
+        enableCommunity: existingCourse.enableCommunity ?? false,
+        communityRoomId: existingCourse.communityRoomId || undefined,
       });
       setLoadingData(false);
     } else if (!courseLoading && !existingCourse && isEdit) {
@@ -1116,7 +1138,7 @@ export default function CourseFormAdmin() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Hàm submit chính – đã được sửa để loại bỏ undefined
+  // ─── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     setTouched(Object.fromEntries(Object.keys(form).map((k) => [k, true])));
     const errs = validate(form);
@@ -1125,8 +1147,12 @@ export default function CourseFormAdmin() {
 
     setSaveState("saving");
 
-    // Loại bỏ tất cả các undefined trong modules (bao gồm content, videoUrl, ...)
     const cleanedModules = removeUndefined(form.modules);
+
+    let finalStatus = form.status;
+    if (!isEdit && role !== "admin") {
+      finalStatus = "draft";
+    }
 
     const payload = {
       title: form.title,
@@ -1134,21 +1160,27 @@ export default function CourseFormAdmin() {
       price: form.price,
       category: form.category,
       level: form.level,
-      status: form.status,
+      status: finalStatus,
       thumbnailUrl: form.thumbnailUrl,
       language: form.language,
       tags: form.tags,
       modules: cleanedModules,
       totalDurationHours: totalCourseHours(form.modules),
+      enableCommunity: form.enableCommunity,
+      instructorId: currentUser?.uid ?? null,
+      createdBy: currentUser?.uid ?? null,
+      updatedBy: currentUser?.uid ?? null,
+      version: 1,
       updatedAt: serverTimestamp(),
     };
+
+    let docId = courseId;
 
     try {
       if (isEdit && courseId) {
         const courseRef = doc(db, "courses", courseId);
         await updateDoc(courseRef, payload);
-        showToast("Course updated successfully!", "success");
-        navigate(`/admin/courses/${courseId}`);
+        docId = courseId;
       } else {
         const newCourseRef = await addDoc(collection(db, "courses"), {
           ...payload,
@@ -1157,19 +1189,36 @@ export default function CourseFormAdmin() {
           ratingCount: 0,
           totalStudents: 0,
         });
-        showToast("Course created successfully!", "success");
-        navigate(`/admin/courses/${newCourseRef.id}`);
+        docId = newCourseRef.id;
       }
+
+      // 🆕 Tạo community nếu course được publish và enableCommunity === true
+      if (finalStatus === "published" && form.enableCommunity && docId) {
+        try {
+          const roomId = await createCourseCommunity(
+            docId, // bây giờ TS biết là string
+            currentUser!.uid,
+            form.title,
+            form.description
+          );
+          await updateDoc(doc(db, "courses", docId), {
+            communityRoomId: roomId,
+            updatedAt: serverTimestamp(),
+          });
+          setForm((prev) => ({ ...prev, communityRoomId: roomId }));
+        } catch (err) {
+          console.error("Failed to create community:", err);
+        }
+      }
+
+      showToast(isEdit ? "Course updated successfully!" : "Course created successfully!", "success");
+      navigate(`/admin/courses/${docId}`);
     } catch (err: any) {
       console.error("Save error:", err);
       showToast(`Error: ${err.message}`, "error");
       setSaveState("error");
       setTimeout(() => setSaveState("idle"), 3000);
-      return;
     }
-
-    setSaveState("saved");
-    setTimeout(() => setSaveState("idle"), 3000);
   };
 
   if (loadingData) {
@@ -1373,6 +1422,71 @@ export default function CourseFormAdmin() {
                   })}
                 </div>
               </InputField>
+            </div>
+
+            {/* 🆕 Community toggle */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,.06)" }}>
+              <div>
+                <label style={LABEL}>Enable Community</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
+                  <button
+                    onClick={() => {
+                      if (!isPro && role !== "admin") {
+                        alert("This feature requires Instructor Pro.");
+                        return;
+                      }
+                      setField("enableCommunity", !form.enableCommunity);
+                    }}
+                    disabled={!isPro && role !== "admin"}
+                    style={{
+                      position: "relative",
+                      width: 48,
+                      height: 26,
+                      borderRadius: 13,
+                      background: form.enableCommunity ? "rgba(69,241,197,0.3)" : "rgba(255,255,255,0.1)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      cursor: (!isPro && role !== "admin") ? "not-allowed" : "pointer",
+                      transition: "all 0.2s",
+                    }}
+                    onMouseOver={(e) => {
+                      if (!form.enableCommunity) e.currentTarget.style.background = "rgba(255,255,255,0.15)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = form.enableCommunity ? "rgba(69,241,197,0.3)" : "rgba(255,255,255,0.1)";
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        left: form.enableCommunity ? 24 : 2,
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        background: form.enableCommunity ? "#45f1c5" : "#fff",
+                        transition: "all 0.25s",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                      }}
+                    />
+                  </button>
+                  <span style={{ fontSize: 13, color: "#C7C4D8" }}>
+                    {form.enableCommunity ? "Enabled" : "Disabled"}
+                  </span>
+                  {!isPro && role !== "admin" && (
+                    <span style={{ fontSize: 11, color: "#FFB785", marginLeft: 8 }}>
+                      ⚡ Requires Instructor Pro
+                    </span>
+                  )}
+                  {isPro && (
+                    <span style={{ fontSize: 11, color: "#45f1c5", marginLeft: 8 }}>
+                      ✓ Pro feature
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 11, color: "#C7C4D8", marginTop: 4 }}>
+                  Students who enroll will be able to join a private community chat for this course.
+                </p>
+              </div>
             </div>
           </Section>
 

@@ -338,6 +338,9 @@ export async function checkCompletionRequirements(
 /**
  * Client-side function to mark a lesson as complete.
  * Uses Firestore transaction (atomic) and runs side effects after.
+ *
+ * ✅ CRITICAL FIX: Tất cả reads được thực hiện TRƯỚC transaction.
+ * Chỉ các writes mới nằm trong transaction.
  */
 export async function completeLessonClient(
   userId: string,
@@ -351,7 +354,26 @@ export async function completeLessonClient(
   const progressRef = doc(db, "progress", progressId);
   const userRef = doc(db, "users", userId);
 
-  // 1. Run transaction to update progress + user XP
+  // ✅ 1. Tất cả reads (không transactional) thực hiện TRƯỚC khi vào transaction
+  const requirements = await checkCompletionRequirements(
+    userId,
+    courseId,
+    moduleId,
+    lessonId,
+    lessonType
+  );
+  if (!requirements.met) {
+    throw new Error(`Completion requirements not met: ${requirements.reason}`);
+  }
+
+  const activeEvent = await getActiveEvent();
+  let finalXPReward = xpReward;
+  if (activeEvent) {
+    finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
+    console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
+  }
+
+  // ✅ 2. Transaction chỉ chứa writes (atomic)
   await runTransaction(db, async (transaction) => {
     const [progressSnap, userSnap] = await Promise.all([
       transaction.get(progressRef),
@@ -367,26 +389,6 @@ export async function completeLessonClient(
     if (existingData?.xpEarned && existingData.xpEarned > 0) {
       console.log(`[completeLessonClient] Lesson ${lessonId} already completed, skipping.`);
       return;
-    }
-
-    // Verify completion requirements (client-side, but with server data)
-    const requirements = await checkCompletionRequirements(
-      userId,
-      courseId,
-      moduleId,
-      lessonId,
-      lessonType
-    );
-    if (!requirements.met) {
-      throw new Error(`Completion requirements not met: ${requirements.reason}`);
-    }
-
-    // Apply event multiplier if active
-    const activeEvent = await getActiveEvent();
-    let finalXPReward = xpReward;
-    if (activeEvent) {
-      finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
-      console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
     }
 
     // Prepare progress document
@@ -416,10 +418,13 @@ export async function completeLessonClient(
     });
   });
 
-  // 2. Side effects (fire-and-forget, do not block main flow)
+  console.log(`[completeLessonClient] Transaction committed, XP awarded: ${finalXPReward}`);
+
+  // ✅ 3. Side effects (fire-and-forget, do not block main flow)
+  // ✅ B2: Sử dụng finalXPReward thay vì xpReward
   Promise.allSettled([
     updateUserStreak(userId).catch((err) => console.error("Streak error:", err)),
-    addXPLog(userId, xpReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
+    addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
       (err) => console.error("XPLog error:", err)
     ),
     checkAndCompleteDailyTask(userId, lessonType).catch((err) => console.error("DailyTask error:", err)),
@@ -445,7 +450,7 @@ export async function completeLessonClient(
     })(),
     (async () => {
       try {
-        // Achievements (legacy)
+        // Achievements (legacy) - 4 calls sequential
         const userSnapAfter = await getDoc(userRef);
         const userDataAfter = userSnapAfter.data() || {};
         const completedLessonsQuery = query(
@@ -493,6 +498,7 @@ export async function completeLessonClient(
           currentStreak: userDataAfter.currentStreak || 0,
           completedCourses: completedCoursesCount,
         };
+        // Gọi achievement check 4 lần – có thể optimize nhưng không critical
         await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
         await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
         await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);

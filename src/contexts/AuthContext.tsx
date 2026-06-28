@@ -1,6 +1,14 @@
 /**
  * src/contexts/AuthContext.tsx
  * Auth provider realtime với Firebase Auth + Firestore
+ * 
+ * Schema User thống nhất:
+ * - uid (document ID)
+ * - email, displayName, photoURL, phone, bio
+ * - role, status, bannedAt, bannedUntil, bannedReason
+ * - totalXP, level, currentStreak, longestStreak, lastStreakDate
+ * - dailyGoalMinutes, unreadCount
+ * - createdAt, updatedAt, lastLogin, lastActiveAt
  */
 
 "use client";
@@ -24,23 +32,40 @@ import {
   createUserWithEmailAndPassword,
   updateProfile
 } from "firebase/auth";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { updateUserStreak } from "../services/streakService";
 
-export type UserRole = "admin" | "moderator" | "instructor" | "user";
+// ─── Role type ─────────────────────────────────────────────────────────────────
+export type UserRole = "admin" | "moderator" | "instructor" | "student";
+export type UserStatus = "active" | "banned" | "suspended";
 
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  phone: string | null;
+  bio: string | null;
   role: UserRole;
-  status: "active" | "banned" | "suspended";
+  status: UserStatus;
+  bannedAt: Date | null;
+  bannedUntil: Date | null;
+  bannedReason: string | null;
   level: number;
   totalXP: number;
-  streakDays: number;
+  currentStreak: number;
+  longestStreak: number;
+  lastStreakDate: Date | null;
+  dailyGoalMinutes: number;
+  unreadCount: number;
   createdAt: Date;
-  lastActiveAt?: Date;
+  updatedAt: Date;
+  lastLogin: Date;
+  lastActiveAt: Date | null;
+  
+  // 🆕 Subscription for instructors
+  subscriptionTier: "free" | "pro";  // mặc định "free"
+  subscriptionExpiresAt?: Date | null;
 }
 
 export interface AuthContextValue {
@@ -85,19 +110,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return cred.user;
   };
 
+  // ─── signUp: tạo user với schema chuẩn, role mặc định "student" ──────────
   const signUp = async (email: string, password: string, displayName: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName });
-    await setDoc(doc(db, 'users', cred.user.uid), {
-      displayName,
-      email,
-      role: 'user',
-      status: 'active',
+
+    const userData = {
+      uid: cred.user.uid,
+      email: cred.user.email,
+      displayName: displayName,
+      photoURL: cred.user.photoURL || null,
+      phone: null,
+      bio: null,
+      role: "student" as UserRole,  // ✅ thay "user" → "student"
+      status: "active" as UserStatus,
+      bannedAt: null,
+      bannedUntil: null,
+      bannedReason: null,
       level: 1,
       totalXP: 0,
-      streakDays: 0,
-      createdAt: new Date(),
-    });
+      currentStreak: 0,
+      longestStreak: 0,
+      lastStreakDate: null,
+      dailyGoalMinutes: 30,
+      unreadCount: 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastLogin: serverTimestamp(),
+      lastActiveAt: serverTimestamp(),
+    };
+
+    await setDoc(doc(db, 'users', cred.user.uid), userData);
     return cred.user;
   };
 
@@ -131,13 +174,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
               email: user.email,
               displayName: data.displayName ?? user.displayName,
               photoURL: data.photoURL ?? user.photoURL,
-              role: data.role ?? "user",
+              phone: data.phone ?? null,
+              bio: data.bio ?? null,
+              role: (data.role === "admin" || data.role === "moderator" || data.role === "instructor" || data.role === "student")
+                ? data.role
+                : "student", // fallback
               status: data.status ?? "active",
+              bannedAt: data.bannedAt?.toDate?.() ?? null,
+              bannedUntil: data.bannedUntil?.toDate?.() ?? null,
+              bannedReason: data.bannedReason ?? null,
               level: data.level ?? 1,
               totalXP: data.totalXP ?? 0,
-              streakDays: data.streakDays ?? 0,
-              createdAt: data.createdAt?.toDate() ?? new Date(),
-              lastActiveAt: data.lastActiveAt?.toDate(),
+              currentStreak: data.currentStreak ?? 0,
+              longestStreak: data.longestStreak ?? 0,
+              lastStreakDate: data.lastStreakDate?.toDate?.() ?? null,
+              dailyGoalMinutes: data.dailyGoalMinutes ?? 30,
+              unreadCount: data.unreadCount ?? 0,
+              createdAt: data.createdAt?.toDate?.() ?? new Date(),
+              updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
+              lastLogin: data.lastLogin?.toDate?.() ?? new Date(),
+              lastActiveAt: data.lastActiveAt?.toDate?.() ?? null,
+              subscriptionTier: data.subscriptionTier ?? "free",
+              subscriptionExpiresAt: data.subscriptionExpiresAt?.toDate?.() ?? null,
             });
             setError(null);
           }

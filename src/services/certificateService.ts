@@ -25,9 +25,6 @@ export interface Certificate {
   certificateId: string;
 }
 
-/**
- * Tạo mã chứng chỉ duy nhất
- */
 function generateCertificateId(userId: string, courseId: string): string {
   const timestamp = Date.now().toString(36);
   const shortUserId = userId.slice(-6);
@@ -35,9 +32,6 @@ function generateCertificateId(userId: string, courseId: string): string {
   return `CERT-${shortUserId}-${shortCourseId}-${timestamp}`.toUpperCase();
 }
 
-/**
- * Kiểm tra xem một khóa học đã được hoàn thành 100% chưa
- */
 export async function isCourseCompleted(
   userId: string,
   courseId: string,
@@ -48,9 +42,6 @@ export async function isCourseCompleted(
   return completedLessons >= totalLessons;
 }
 
-/**
- * Kiểm tra xem đã có certificate cho khóa học này chưa
- */
 export async function hasCertificate(userId: string, courseId: string): Promise<boolean> {
   const certId = `${userId}_${courseId}`;
   const certRef = doc(db, "certificates", certId);
@@ -58,9 +49,6 @@ export async function hasCertificate(userId: string, courseId: string): Promise<
   return snap.exists();
 }
 
-/**
- * Tạo certificate mới (lưu Firestore)
- */
 export async function createCertificate(
   userId: string,
   courseId: string,
@@ -89,7 +77,7 @@ export async function createCertificate(
 
 /**
  * Hàm chính: kiểm tra và sinh chứng chỉ nếu đủ điều kiện
- * ✅ CRITICAL-3: Dùng deterministic ID + transaction để tránh duplicate
+ * ✅ CRITICAL FIX: isCourseCompleted được gọi TRƯỚC transaction
  */
 export async function checkAndGenerateCertificate(
   userId: string,
@@ -101,7 +89,14 @@ export async function checkAndGenerateCertificate(
   const certId = `${userId}_${courseId}`;
   const certRef = doc(db, "certificates", certId);
 
+  // ✅ 1. Kiểm tra completed TRƯỚC transaction
+  const completed = await isCourseCompleted(userId, courseId, totalLessons);
+  if (!completed) {
+    return null;
+  }
+
   try {
+    // ✅ 2. Transaction chỉ chứa check + write
     const result = await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(certRef);
       if (existing.exists()) {
@@ -120,11 +115,6 @@ export async function checkAndGenerateCertificate(
         };
       }
 
-      const completed = await isCourseCompleted(userId, courseId, totalLessons);
-      if (!completed) {
-        return { exists: false, completed: false };
-      }
-
       const certificateId = generateCertificateId(userId, courseId);
       transaction.set(certRef, {
         userId,
@@ -137,7 +127,6 @@ export async function checkAndGenerateCertificate(
 
       return {
         exists: false,
-        completed: true,
         certificate: {
           id: certId,
           userId,
@@ -155,10 +144,6 @@ export async function checkAndGenerateCertificate(
       return result.certificate || null;
     }
 
-    if (!result.completed) {
-      return null;
-    }
-
     console.log(`🎓 Certificate issued for ${userName} on course "${courseTitle}"`);
     return result.certificate || null;
 
@@ -168,9 +153,6 @@ export async function checkAndGenerateCertificate(
   }
 }
 
-/**
- * Lấy danh sách certificates của user
- */
 export async function getUserCertificates(userId: string): Promise<Certificate[]> {
   const q = query(collection(db, "certificates"), where("userId", "==", userId));
   const snap = await getDocs(q);

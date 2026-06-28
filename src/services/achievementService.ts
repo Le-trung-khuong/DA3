@@ -158,6 +158,7 @@ async function createAchievementNotification(userId: string, achievement: Achiev
 }
 
 // ✅ NEW-1: Parallelize unlockAchievement calls
+// ✅ NEW-1: Parallelize unlockAchievement calls with allSettled
 export async function checkAndUnlockAchievements(
   userId: string,
   stats: {
@@ -200,16 +201,20 @@ export async function checkAndUnlockAchievements(
     }
     
     if (isUnlocked) {
-      // ✅ Thêm vào promise array thay vì await
       unlockPromises.push(unlockAchievement(userId, def, 100).then(() => {
         newlyUnlocked.push(def);
       }));
     }
   }
 
-  // ✅ Chạy tất cả unlock song song
+  // ✅ C5: Dùng Promise.allSettled để 1 fail không block các unlock khác
   if (unlockPromises.length > 0) {
-    await Promise.all(unlockPromises);
+    const results = await Promise.allSettled(unlockPromises);
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`[Achievement] Failed to unlock achievement:`, result.reason);
+      }
+    });
   }
   
   return newlyUnlocked;
@@ -240,7 +245,12 @@ export async function checkAndUnlockAchievementsLegacy(
   }
 
   if (unlockPromises.length > 0) {
-    await Promise.all(unlockPromises);
+    const results = await Promise.allSettled(unlockPromises);
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`[Achievement] Failed to unlock achievement:`, result.reason);
+      }
+    });
   }
   return newlyUnlocked;
 }

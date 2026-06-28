@@ -22,6 +22,7 @@ export function KnowledgeCheck({ questions, onPass, onFail, isOpen }: KnowledgeC
   const [submitted, setSubmitted] = useState(false);
   const [passed, setPassed] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
   // ✅ HIGH-5: Ref để cleanup timeout
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -44,9 +45,11 @@ export function KnowledgeCheck({ questions, onPass, onFail, isOpen }: KnowledgeC
 
   const handleSubmit = () => {
     if (Object.keys(answers).length !== questions.length) {
-      alert('Vui lòng trả lời tất cả câu hỏi.');
+      // ✅ D3: Thay alert bằng inline validation
+      setValidationMessage('Vui lòng trả lời tất cả câu hỏi.');
       return;
     }
+    setValidationMessage(null);
 
     setSubmitted(true);
     const correctCount = questions.filter(q => answers[q.id] === q.correctIndex).length;
@@ -83,6 +86,7 @@ export function KnowledgeCheck({ questions, onPass, onFail, isOpen }: KnowledgeC
     setSubmitted(false);
     setPassed(false);
     setShowResults(false);
+    setValidationMessage(null);
   };
 
   return (
@@ -115,6 +119,19 @@ export function KnowledgeCheck({ questions, onPass, onFail, isOpen }: KnowledgeC
           </p>
         </div>
       </div>
+
+      {validationMessage && (
+        <div style={{
+          color: '#ffb4ab',
+          fontSize: 13,
+          marginBottom: 12,
+          padding: 8,
+          background: 'rgba(255,180,171,0.1)',
+          borderRadius: 8,
+        }}>
+          ⚠️ {validationMessage}
+        </div>
+      )}
 
       {showResults && (
         <div style={{

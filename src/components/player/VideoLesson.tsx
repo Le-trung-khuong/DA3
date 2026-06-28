@@ -120,21 +120,50 @@ export function VideoLesson({
     setDisplayTime(trackingActions.getTrackingSnapshot().currentTime);
   }, [trackingActions]);
 
+  // ✅ FIX: loadYouTubeAPI với timeout + onYouTubeIframeAPIReady + onerror
   const loadYouTubeAPI = useCallback((): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      // Đã có sẵn rồi
       if (window.YT && window.YT.Player) {
         resolve();
         return;
       }
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.onload = () => {
-        const checkReady = setInterval(() => {
+
+      // YouTube API gọi window.onYouTubeIframeAPIReady khi xong
+      // Phải đăng ký TRƯỚC khi append script
+      const prevCallback = window.onYouTubeIframeAPIReady;
+      let timeoutId: ReturnType<typeof setTimeout>;
+
+      window.onYouTubeIframeAPIReady = () => {
+        if (prevCallback) prevCallback(); // chain nếu đã có
+        clearTimeout(timeoutId);
+        resolve();
+      };
+
+      // Timeout 10 giây — nếu bị Tracking Prevention block thì không treo mãi
+      timeoutId = setTimeout(() => {
+        reject(new Error("YouTube API load timeout — có thể bị Tracking Prevention chặn"));
+      }, 10_000);
+
+      // Tránh append script trùng
+      const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+      if (existingScript) {
+        // Script đã có (từ lần trước), chờ callback hoặc check ngay
+        const checkInterval = setInterval(() => {
           if (window.YT && window.YT.Player) {
-            clearInterval(checkReady);
+            clearInterval(checkInterval);
+            clearTimeout(timeoutId);
             resolve();
           }
         }, 100);
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      script.onerror = () => {
+        clearTimeout(timeoutId);
+        reject(new Error("Không thể tải YouTube API script"));
       };
       document.body.appendChild(script);
     });
@@ -164,6 +193,7 @@ export function VideoLesson({
     await trackingActions.forceSave();
   }, [trackingActions]);
 
+  // Auto-save on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
@@ -173,25 +203,13 @@ export function VideoLesson({
           timestamp: Date.now(),
         }));
       } catch (_) { /* ignore */ }
-
-      try {
-        const data = trackingActions.getTrackingSnapshot();
-        const blob = new Blob([JSON.stringify({
-          userId,
-          courseId,
-          moduleId,
-          lessonId,
-          ...data,
-          timestamp: Date.now(),
-        })], { type: "application/json" });
-        navigator.sendBeacon("/api/save-tracking", blob);
-      } catch (_) { /* ignore */ }
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [trackingActions, lessonId, userId, courseId, moduleId]);
+  }, [trackingActions, lessonId]);
 
+  // Recovery from localStorage
   useEffect(() => {
     const recoverFromBackup = async () => {
       try {
@@ -214,18 +232,27 @@ export function VideoLesson({
     recoverFromBackup();
   }, [lessonId, trackingActions]);
 
+  // RAF Tracking (cho YouTube) — chỉ track khi playing
   useEffect(() => {
     if (!isYouTube || isCompletedState) return;
 
     let frameId: number | null = null;
+    let isActive = true;
+
     const track = () => {
-      if (!playerRef.current || isCompletedState) {
+      if (!isActive || isCompletedState) {
         frameId = requestAnimationFrame(track);
         return;
       }
-      const player = playerRef.current;
 
+      if (!playerRef.current) {
+        frameId = requestAnimationFrame(track);
+        return;
+      }
+
+      const player = playerRef.current;
       let isActuallyPlaying = isPlaying;
+
       try {
         if (player.getPlayerState) {
           const state = player.getPlayerState();
@@ -250,14 +277,29 @@ export function VideoLesson({
         trackingActions.onTick(ct, dur);
         setDisplayTime(ct);
       }
+
       frameId = requestAnimationFrame(track);
     };
-    frameId = requestAnimationFrame(track);
+
+    if (isPlaying) {
+      frameId = requestAnimationFrame(track);
+    } else {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+    }
+
     return () => {
-      if (frameId) cancelAnimationFrame(frameId);
+      isActive = false;
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
     };
   }, [isYouTube, isCompletedState, trackingActions, isPlaying]);
 
+  // Video Element Events (non-YouTube)
   useEffect(() => {
     if (isYouTube || !videoRef.current || isCompletedState) return;
     const video = videoRef.current;
@@ -307,6 +349,7 @@ export function VideoLesson({
     };
   }, [isYouTube, isCompletedState, trackingActions]);
 
+  // ✅ FIX: YouTube Player init với timeout + origin handling
   useEffect(() => {
     if (!isYouTube || !embedUrl || isCompletedState) return;
 
@@ -315,42 +358,54 @@ export function VideoLesson({
 
     const initPlayer = async () => {
       setYoutubeLoading(true);
+      setYoutubeError(null);
 
       try {
         await loadYouTubeAPI();
+      } catch (err: any) {
+        console.error("YouTube API load failed:", err);
+        setYoutubeLoading(false);
+        setYoutubeError(
+          "Không thể tải YouTube Player. Trình duyệt của bạn có thể đang chặn nội dung từ YouTube. " +
+          "Thử tắt Tracking Prevention hoặc dùng Chrome/Edge."
+        );
+        return;
+      }
 
-        if (!mounted || !containerRef.current) return;
+      if (!mounted || !containerRef.current) return;
 
-        if (!window.YT || !window.YT.Player) {
-          console.warn("YouTube API not ready, retrying...");
-          setTimeout(initPlayer, 500);
-          return;
-        }
+      const containerId = `youtube-player-${lessonId}`;
+      let container = document.getElementById(containerId);
+      if (!container) {
+        container = document.createElement("div");
+        container.id = containerId;
+        container.style.width = "100%";
+        container.style.height = "100%";
+        containerRef.current.appendChild(container);
+      }
 
-        const containerId = `youtube-player-${lessonId}`;
-        let container = document.getElementById(containerId);
-        if (!container) {
-          container = document.createElement("div");
-          container.id = containerId;
-          container.style.width = "100%";
-          container.style.height = "100%";
-          containerRef.current.appendChild(container);
-        }
+      // ✅ Không pass origin trên localhost để tránh postMessage mismatch
+      const isLocalhost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      const playerVars: any = {
+        controls: 1,
+        modestbranding: 1,
+        rel: 0,
+        fs: 1,
+        enablejsapi: 1,
+        playsinline: 1,
+      };
+      if (!isLocalhost) {
+        playerVars.origin = window.location.origin;
+      }
 
-        const origin = window.location.origin;
+      try {
         playerInstance = new window.YT.Player(containerId, {
           height: "100%",
           width: "100%",
           videoId: extractVideoId(videoUrl),
-          playerVars: {
-            controls: 1,
-            modestbranding: 1,
-            rel: 0,
-            fs: 1,
-            enablejsapi: 1,
-            origin: origin,
-            playsinline: 1,
-          },
+          playerVars,
           events: {
             onReady: (event: any) => {
               playerRef.current = event.target;
@@ -368,7 +423,10 @@ export function VideoLesson({
               if (event.data === window.YT.PlayerState.PLAYING) {
                 setIsPlaying(true);
                 trackingActions.onPlay();
-              } else if (event.data === window.YT.PlayerState.PAUSED || event.data === window.YT.PlayerState.ENDED) {
+              } else if (
+                event.data === window.YT.PlayerState.PAUSED ||
+                event.data === window.YT.PlayerState.ENDED
+              ) {
                 setIsPlaying(false);
                 trackingActions.onPause(player.getCurrentTime());
                 if (event.data === window.YT.PlayerState.ENDED) {
@@ -379,14 +437,12 @@ export function VideoLesson({
                     saveTracking();
                   }
                 }
-              } else if (event.data === window.YT.PlayerState.BUFFERING) {
-                // do nothing
               }
             },
             onError: (err: any) => {
               console.error("YouTube player error:", err);
               setYoutubeLoading(false);
-              if (err.data === 150) {
+              if (err.data === 150 || err.data === 101) {
                 setYoutubeError("Video không cho phép nhúng. Bạn có thể xem trực tiếp trên YouTube.");
               } else if (err.data === 2) {
                 setYoutubeError("Video ID không hợp lệ hoặc video bị xóa.");
@@ -399,9 +455,9 @@ export function VideoLesson({
           },
         });
       } catch (err) {
-        console.error("Failed to init YouTube player:", err);
+        console.error("Failed to create YT.Player:", err);
         setYoutubeLoading(false);
-        setYoutubeError("Không thể tải video. Vui lòng thử lại.");
+        setYoutubeError("Không thể khởi tạo video player. Vui lòng thử lại.");
       }
     };
 
@@ -420,6 +476,7 @@ export function VideoLesson({
     };
   }, [isYouTube, embedUrl, lessonId, isCompletedState, videoUrl, loadYouTubeAPI, trackingActions, saveTracking]);
 
+  // UI Controls
   const handlePlayPause = useCallback(() => {
     if (isYouTube && playerRef.current) {
       if (isPlaying) {
@@ -563,6 +620,7 @@ export function VideoLesson({
     if (playerRef.current?.playVideo) playerRef.current.playVideo();
   }, [trackingActions]);
 
+  // ===== RENDER =====
   if (isYouTube && embedUrl) {
     return (
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
@@ -752,6 +810,7 @@ export function VideoLesson({
     );
   }
 
+  // ===== HTML5 Video Render =====
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto" }}>
       <style>{`

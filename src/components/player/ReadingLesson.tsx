@@ -155,6 +155,7 @@ export function ReadingLesson({
   const isActiveRef = useRef(true);
   const sectionObservedRef = useRef<Set<string>>(new Set());
   const scrollSpikeCountRef = useRef(0);
+  const suspectedFastScrollRef = useRef(false); // ✅ C4: dùng ref để tránh re-register listener
 
   const enhancedContent = useMemo(() => enhanceContentForCards(content), [content]);
   const minReadingTimeRequired = useMemo(
@@ -197,8 +198,10 @@ export function ReadingLesson({
           setSectionInteraction(t.sectionInteraction || 0);
           setTotalSections(t.totalSections || 1);
           setSuspectedFastScroll(t.suspectedFastScroll || false);
+          suspectedFastScrollRef.current = t.suspectedFastScroll || false;
           setFocusTimeSeconds(t.focusTimeSeconds || 0);
-          if ((t.scrollSpikeCount || 0) > MAX_SCROLL_SPIKES && !suspectedFastScroll) {
+          if ((t.scrollSpikeCount || 0) > MAX_SCROLL_SPIKES && !suspectedFastScrollRef.current) {
+            suspectedFastScrollRef.current = true;
             setSuspectedFastScroll(true);
             showToast("Cuộn nhanh được ghi nhận – đọc kỹ để đạt tương tác tốt hơn", "warning");
           }
@@ -253,7 +256,7 @@ export function ReadingLesson({
         engagementScore,
         sectionInteraction,
         totalSections,
-        suspectedFastScroll,
+        suspectedFastScroll: suspectedFastScrollRef.current,
         focusTimeSeconds,
         lastActivityAt: Date.now(),
       },
@@ -272,7 +275,6 @@ export function ReadingLesson({
     engagementScore,
     sectionInteraction,
     totalSections,
-    suspectedFastScroll,
     focusTimeSeconds,
   ]);
 
@@ -290,6 +292,7 @@ export function ReadingLesson({
     return () => clearInterval(interval);
   }, [saveReadingTracking]);
 
+  // ✅ C4: Loại bỏ suspectedFastScroll khỏi dependency của handleScroll
   const handleScroll = useCallback(() => {
     if (!contentRef.current || isCompletedState) return;
 
@@ -309,7 +312,8 @@ export function ReadingLesson({
       if (isCheating) {
         scrollSpikeCountRef.current += 1;
         setScrollSpikeCount(scrollSpikeCountRef.current);
-        if (scrollSpikeCountRef.current > MAX_SCROLL_SPIKES && !suspectedFastScroll) {
+        if (scrollSpikeCountRef.current > MAX_SCROLL_SPIKES && !suspectedFastScrollRef.current) {
+          suspectedFastScrollRef.current = true;
           setSuspectedFastScroll(true);
           showToast("Cuộn nhanh được ghi nhận – đọc kỹ để đạt tương tác tốt hơn", "warning");
         }
@@ -321,7 +325,7 @@ export function ReadingLesson({
 
     setActualReadProgress(percent);
     markDirty();
-  }, [isCompletedState, suspectedFastScroll, showToast, markDirty]);
+  }, [isCompletedState, showToast, markDirty]);
 
   useEffect(() => {
     window.addEventListener("scroll", handleScroll);

@@ -1,10 +1,9 @@
+// src/layout/LayoutInstructor.tsx
 /**
- * src/layouts/LayoutAdmin.tsx
+ * src/layouts/LayoutInstructor.tsx
  * ─────────────────────────────────────────────────────────────
- * Admin shell layout với Firebase Auth integration.
- * - Admin/Moderator: full admin panel
- * - Instructor: chỉ truy cập các route quản lý khóa học (courses)
- *   và có nút quay về Instructor Portal
+ * Instructor shell layout – dành riêng cho instructor portal.
+ * Clone từ LayoutAdmin nhưng sidebar chỉ có: Dashboard, My Courses, Earnings.
  */
 
 "use client";
@@ -18,62 +17,43 @@ import React, {
   type CSSProperties,
 } from "react";
 
-import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
 // ─── Icons ─────────────────────────────────────────────────────────────────────
 import {
-  LayoutDashboard, BookOpen, Users, MessageSquare, BarChart2,
-  Settings, LogOut, Bell, Search, ChevronRight, Menu, X,
+  LayoutDashboard, BookOpen, Settings, LogOut, Bell, Search, Menu, X,
   Shield, AlertTriangle, Loader, RefreshCw, Home,
-  Flag, Zap, Hash, CreditCard, Star,
   ChevronDown, ExternalLink, Activity, Lock, Radio,
-  Info, ShieldOff, Trophy, GraduationCap,
+  Info, ShieldOff, DollarSign, BarChart2,
 } from "lucide-react";
 
 // ─── Auth hook ────────────────────────────────────────────────────────────────
 import { useAuth } from "../contexts/AuthContext";
-import type { UserRole } from "../contexts/AuthContext";
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NAV CONFIG – Dashboard chỉ dành cho admin/moderator (không cho instructor)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const NAV_ITEMS: NavItem[] = [
-  // ── OVERVIEW ────────────────────────────────────────────────────────────────
-  { section: "Overview",    label: "Dashboard",    path: "/admin/dashboard",    Icon: LayoutDashboard, roles: ["admin","moderator"] }, // 👈 bỏ instructor
-
-  // ── CONTENT ─────────────────────────────────────────────────────────────────
-  { section: "Content",     label: "Courses",      path: "/admin/courses",      Icon: BookOpen,    roles: ["admin","moderator","instructor"] },
-  {                         label: "Transactions", path: "/admin/transactions", Icon: CreditCard,  roles: ["admin"] },
-
-  // ── USERS ───────────────────────────────────────────────────────────────────
-  { section: "Users",       label: "All Users",    path: "/admin/users",        Icon: Users,       roles: ["admin","moderator"] },
-  {                         label: "Reviews",      path: "/admin/reviews",      Icon: Star,        roles: ["admin","moderator"] },
-  {                         label: "Leaderboard",  path: "/admin/leaderboard",  Icon: Trophy,      roles: ["admin","moderator"] },
-
-  // ── COMMUNITY ───────────────────────────────────────────────────────────────
-  { section: "Community",   label: "Chat Rooms",   path: "/admin/community",    Icon: Hash,        roles: ["admin","moderator"] },
-  {                         label: "Reports",      path: "/admin/reports",      Icon: Flag,        badge: 7, badgeColor: "#ffb4ab", roles: ["admin","moderator"] },
-
-  // ── SYSTEM ──────────────────────────────────────────────────────────────────
-  { section: "System",      label: "XP Events",    path: "/admin/events",       Icon: Zap,         roles: ["admin"] },
-  {                         label: "Settings",     path: "/admin/settings",     Icon: Settings,    roles: ["admin"] },
-  {                         label: "Notifications",path: "/admin/notifications",Icon: Bell,        roles: ["admin"] },
-];
+import type { UserRole } from "../contexts/AuthContext"; // 👈 import type
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface NavItem {
-  label:      string;
-  path:       string;
-  Icon:       React.ElementType;
-  badge?:     number | string;
-  badgeColor?:string;
-  section?:   string;
-  roles:      UserRole[];
+  label: string;
+  path: string;
+  Icon: React.ElementType;
+  badge?: number | string;
+  badgeColor?: string;
+  section?: string;
+  roles: UserRole[]; // 👈 dùng kiểu import
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NAV CONFIG – Instructor chỉ có 3 mục
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const NAV_ITEMS: NavItem[] = [
+  { section: "Overview", label: "Dashboard", path: "/instructor/dashboard", Icon: LayoutDashboard, roles: ["instructor", "admin"] },
+  { section: "Content",  label: "My Courses", path: "/instructor/courses",   Icon: BookOpen,      roles: ["instructor", "admin"] },
+  { section: "Revenue",  label: "Earnings",   path: "/instructor/earnings",  Icon: DollarSign,    roles: ["instructor", "admin"] },
+];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHARED STYLES
@@ -91,7 +71,7 @@ const T: Record<string, string | number | CSSProperties> = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SidebarItem
+// SidebarItem – responsive, collapsed support
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface SidebarItemProps {
@@ -187,20 +167,20 @@ function SidebarItem({ item, collapsed, active, onClick }: SidebarItemProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Sidebar
+// Sidebar – Desktop and Mobile drawer
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface SidebarProps {
   collapsed:  boolean;
   mobileOpen: boolean;
   onClose:    () => void;
-  role:       UserRole | null;
+  role:       UserRole | null; // 👈 dùng kiểu import
 }
 
 function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const width = collapsed ? 68 : 240;
+  const width = collapsed ? 68 : 220;
 
   const visibleItems = NAV_ITEMS.filter((item) =>
     role ? item.roles.includes(role) : false
@@ -264,7 +244,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
                 SMART REVIEW
               </div>
               <div style={{ fontSize: 9, fontWeight: 700, color: "#9B59B6", textTransform: "uppercase", letterSpacing: ".1em" }}>
-                {role === "instructor" ? "Course Management" : "Admin Console"}
+                Instructor Portal
               </div>
             </div>
           )}
@@ -308,7 +288,7 @@ function Sidebar({ collapsed, mobileOpen, onClose, role }: SidebarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TopBar – Thêm nút "Instructor Portal" cho instructor
+// TopBar
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TopBarProps {
@@ -337,15 +317,12 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
-  const avatarLetter = (userProfile?.displayName ?? "A").charAt(0).toUpperCase();
+  const avatarLetter = (userProfile?.displayName ?? "I").charAt(0).toUpperCase();
 
   const notifs = [
-    { id: 1, text: "7 messages flagged for review",     color: "#ffb4ab", time: "5m ago" },
-    { id: 2, text: "New user registered: Nguyễn Minh",  color: "#45f1c5", time: "12m ago" },
-    { id: 3, text: "Transaction #TXN_9821 refund req.",  color: "#FFB785", time: "1h ago" },
+    { id: 1, text: "New student enrolled in your course", color: "#45f1c5", time: "5m ago" },
+    { id: 2, text: "Course review pending approval",     color: "#FFB785", time: "1h ago" },
   ];
-
-  const isInstructor = role === "instructor";
 
   return (
     <header style={{
@@ -374,7 +351,7 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
         <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.dim as string }} />
         <input
           value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search users, courses, transactions…"
+          placeholder="Search students, courses…"
           style={{
             width: "100%", background: "rgba(255,255,255,.04)", border: `1px solid ${T.border}`,
             borderRadius: 12, padding: "8px 12px 8px 34px", color: T.text as string,
@@ -393,31 +370,6 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
       </div>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-        {/* 👇 Nút Instructor Portal – chỉ hiển thị khi role là instructor */}
-        {isInstructor && (
-          <Link
-            to="/instructor/dashboard"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 14px",
-              borderRadius: 20,
-              background: "rgba(69,241,197,.12)",
-              border: "1px solid rgba(69,241,197,.25)",
-              color: "#45f1c5",
-              fontSize: 12,
-              fontWeight: 700,
-              textDecoration: "none",
-              transition: "background .15s",
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.background = "rgba(69,241,197,.22)")}
-            onMouseOut={(e) => (e.currentTarget.style.background = "rgba(69,241,197,.12)")}
-          >
-            <GraduationCap size={14} /> Instructor Portal
-          </Link>
-        )}
-
         <span style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 999, background: "rgba(108,99,255,.12)", border: "1px solid rgba(108,99,255,.28)", color: "#c4c0ff", fontSize: 11, fontWeight: 800, letterSpacing: ".06em" }}>
           <Shield size={11} /> {role?.toUpperCase() ?? "—"}
         </span>
@@ -457,7 +409,7 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
               {avatarLetter}
             </div>
             <div style={{ textAlign: "left" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.text as string, lineHeight: 1.2 }}>{userProfile?.displayName ?? "Admin"}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text as string, lineHeight: 1.2 }}>{userProfile?.displayName ?? "Instructor"}</div>
               <div style={{ fontSize: 10, color: T.muted as string, lineHeight: 1 }}>{userProfile?.email}</div>
             </div>
             <ChevronDown size={12} color={T.dim as string} style={{ transition: "transform .2s", transform: userMenuOpen ? "rotate(180deg)" : "none" }} />
@@ -471,8 +423,7 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
               </div>
               {[
                 { Icon: Home, label: "Main App", action: () => navigate("/"), color: T.muted as string },
-                { Icon: Settings, label: "Settings", action: () => navigate("/admin/settings"), color: T.muted as string },
-                { Icon: ExternalLink, label: "Docs", action: () => {}, color: T.muted as string },
+                { Icon: Settings, label: "Settings", action: () => navigate("/instructor/settings"), color: T.muted as string },
               ].map(({ Icon, label, action, color }) => (
                 <button key={label} onClick={() => { action(); setUserMenuOpen(false); }}
                   style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "none", border: "none", color, transition: "all .15s", textAlign: "left" }}
@@ -497,18 +448,17 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AdminRouteGuard – Instructor chỉ được vào /admin/courses/*
+// InstructorRouteGuard – chỉ cho instructor hoặc admin
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface AdminRouteGuardProps {
+interface InstructorRouteGuardProps {
   children: ReactNode;
   allowedRoles?: UserRole[];
 }
 
-export function AdminRouteGuard({ children, allowedRoles = ["admin"] }: AdminRouteGuardProps) {
+function InstructorRouteGuard({ children, allowedRoles = ["instructor", "admin"] }: InstructorRouteGuardProps) {
   const { currentUser, role, loading, error } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     if (!loading && !currentUser) navigate("/admin/login");
@@ -520,7 +470,7 @@ export function AdminRouteGuard({ children, allowedRoles = ["admin"] }: AdminRou
         <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 30px rgba(108,99,255,.5)", animation: "pulse 1.5s ease infinite" }}>
           <Shield size={26} color="#fff" />
         </div>
-        <div style={{ fontSize: 13, color: "#C7C4D8", fontWeight: 600 }}>Verifying admin access…</div>
+        <div style={{ fontSize: 13, color: "#C7C4D8", fontWeight: 600 }}>Verifying access…</div>
         <div style={{ display: "flex", gap: 5 }}>
           {[0, 1, 2].map((i) => (
             <span key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#6C63FF", display: "inline-block", animation: `bounce .9s ${i * .18}s ease infinite` }} />
@@ -545,18 +495,7 @@ export function AdminRouteGuard({ children, allowedRoles = ["admin"] }: AdminRou
     );
   }
 
-  // ✅ Cho phép instructor truy cập các route quản lý khóa học
-  const pathname = location.pathname;
-  const isInstructorAllowed =
-    role === "instructor" &&
-    (pathname === "/admin/courses" ||                                     // danh sách
-     pathname === "/admin/courses/new" ||                                 // tạo mới
-     pathname.match(/^\/admin\/courses\/[^/]+$/) ||                       // chi tiết
-     pathname.match(/^\/admin\/courses\/[^/]+\/edit$/));                  // chỉnh sửa
-
-  const isAllowed = allowedRoles.includes(role) || isInstructorAllowed;
-
-  if (!isAllowed) {
+  if (!allowedRoles.includes(role)) {
     return <ForbiddenScreen role={role} onGoHome={() => navigate("/")} />;
   }
 
@@ -570,7 +509,7 @@ function FirebaseErrorScreen({ code, error, onRetry }: FirebaseErrorScreenProps)
   const cfg: Record<string, { title: string; desc: string; color: string; Icon: React.ElementType }> = {
     "permission-denied":  { title: "Permission Denied",    desc: "Your account doesn't have Firestore access. Contact your system administrator.",              color: "#ffb4ab", Icon: Lock },
     "unavailable":        { title: "Service Unavailable",  desc: "Firestore is temporarily unreachable. Check your connection and try again.",                  color: "#FFB785", Icon: Radio },
-    "not-found":          { title: "Document Not Found",   desc: "Your admin profile wasn't found in Firestore. Run the setup script or contact support.",      color: "#FFB785", Icon: Info },
+    "not-found":          { title: "Document Not Found",   desc: "Your profile wasn't found in Firestore. Run the setup script or contact support.",      color: "#FFB785", Icon: Info },
     "resource-exhausted": { title: "Quota Exceeded",       desc: "Firestore quota has been exceeded. Upgrade your Firebase plan or wait for quota reset.",      color: "#c4c0ff", Icon: Activity },
     "unauthenticated":    { title: "Not Authenticated",    desc: "Your session has expired. Please sign in again.",                                             color: "#ffb4ab", Icon: ShieldOff },
   };
@@ -608,9 +547,7 @@ function ForbiddenScreen({ role, onGoHome }: { role: UserRole; onGoHome: () => v
         </div>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: "#E4E1EE", marginBottom: 10 }}>Access Forbidden</h1>
         <p style={{ fontSize: 13, color: "#C7C4D8", lineHeight: 1.6, marginBottom: 6 }}>
-          {role === "instructor" 
-            ? "Instructors can only access course management pages (list, create, edit, detail). Use the 'Instructor Portal' button to return to your dashboard."
-            : "The admin panel requires the <strong style={{ color: '#c4c0ff' }}>admin</strong> role."}
+          You need the <strong style={{ color: "#c4c0ff" }}>instructor</strong> or <strong style={{ color: "#c4c0ff" }}>admin</strong> role to access this page.
         </p>
         <p style={{ fontSize: 12, color: "#47464f", marginBottom: 28 }}>
           Your current role: <span style={{ color: "#FFB785", fontWeight: 700 }}>{role}</span>
@@ -625,15 +562,14 @@ function ForbiddenScreen({ role, onGoHome }: { role: UserRole; onGoHome: () => v
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// LayoutAdmin (main export)
+// LayoutInstructor (main export)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface LayoutAdminProps {
+interface LayoutInstructorProps {
   children?: ReactNode;
-  allowedRoles?: UserRole[];
 }
 
-export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps) {
+export default function LayoutInstructor({ children }: LayoutInstructorProps) {
   const { role } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -651,7 +587,7 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const sidebarWidth = collapsed ? 68 : 240;
+  const sidebarWidth = collapsed ? 68 : 220;
 
   const handleToggle = () => {
     if (window.innerWidth < 1024) {
@@ -662,7 +598,7 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
   };
 
   return (
-    <AdminRouteGuard allowedRoles={allowedRoles}>
+    <InstructorRouteGuard>
       <div style={{ minHeight: "100vh", background: "#0F0F1A", color: "#E4E1EE", fontFamily: "Inter,sans-serif" }}>
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
@@ -705,6 +641,6 @@ export default function LayoutAdmin({ children, allowedRoles }: LayoutAdminProps
           </div>
         </main>
       </div>
-    </AdminRouteGuard>
+    </InstructorRouteGuard>
   );
 }

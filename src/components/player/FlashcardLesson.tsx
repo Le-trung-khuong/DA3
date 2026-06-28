@@ -135,6 +135,7 @@ export function FlashcardLesson({
   const allViewed = viewedCardIds.size === totalCards;
 
   // ✅ HIGH-6: Debounce saveFlashcardProgress
+  // ✅ D1: Tích lũy timesReviewed
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -144,17 +145,29 @@ export function FlashcardLesson({
     }
 
     saveTimeoutRef.current = setTimeout(async () => {
+      // Lấy dữ liệu cũ để biết timesReviewed trước đó
+      const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
+      const progSnap = await getDoc(doc(db, "progress", progressId));
+      const existingCards = (progSnap.exists() && progSnap.data().flashcardProgress?.cards) || {};
+
       const flashcardProgress = {
         lessonId,
         cards: Object.fromEntries(
-          cards.map((card) => [
-            card.id,
-            {
-              mastered: mastered.has(card.id),
-              timesReviewed: mastered.has(card.id) ? 1 : 0,
-              lastReviewedAt: new Date(),
-            },
-          ])
+          cards.map((card) => {
+            const existing = existingCards[card.id] || {};
+            const currentTimesReviewed = existing.timesReviewed || 0;
+            const isMastered = mastered.has(card.id);
+            // ✅ D1: Chỉ tăng timesReviewed khi card được mastered (good/easy)
+            const newTimesReviewed = isMastered ? currentTimesReviewed + 1 : currentTimesReviewed;
+            return [
+              card.id,
+              {
+                mastered: isMastered,
+                timesReviewed: newTimesReviewed,
+                lastReviewedAt: new Date(),
+              },
+            ];
+          })
         ),
         masteredCount: mastered.size,
         totalCount: cards.length,
@@ -450,7 +463,6 @@ export function FlashcardLesson({
       </div>
 
       <div style={{ textAlign: "center", marginTop: 32 }}>
-        {/* ✅ UX-5: Confirmation cho reset session */}
         <button
           onClick={() => {
             if (window.confirm('Bạn có chắc muốn reset toàn bộ tiến độ flashcard? Hành động này không thể hoàn tác.')) {

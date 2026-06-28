@@ -1,5 +1,5 @@
 // src/components/player/QuizLesson.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { CheckCircle, XCircle, Clock, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import {
   saveQuizAttempt,
@@ -97,7 +97,6 @@ export function QuizLesson({
         if (data.quizAnswers) setAnswers(data.quizAnswers);
         if (data.quizCurrentIndex !== undefined) setCurrentIndex(data.quizCurrentIndex);
         if (data.quizTimeLeft !== undefined) setTimeLeft(data.quizTimeLeft);
-        // Restore isRetry
         if (data.quizRetry !== undefined) {
           setIsRetry(data.quizRetry);
           if (data.quizRetry === true) {
@@ -122,6 +121,7 @@ export function QuizLesson({
     return () => clearTimeout(timeout);
   }, [answers, currentIndex, timeLeft, submitted, isCompletedState, userId, courseId, moduleId, lessonId, isRetry]);
 
+  // Timer warnings
   useEffect(() => {
     if (!submitted && timerActive && timeLeft > 0 && !isCompletedState) {
       const warningPoints = [60, 30, 10];
@@ -176,7 +176,8 @@ export function QuizLesson({
     });
   };
 
-  const handleSubmit = async () => {
+  // ✅ B3: Wrap handleSubmit với useCallback và đầy đủ deps
+  const handleSubmit = useCallback(async () => {
     if (isCompletedState) {
       alert("Bạn đã hoàn thành quiz này rồi!");
       return;
@@ -219,7 +220,6 @@ export function QuizLesson({
         try {
           await completeLessonClient(userId, courseId, moduleId, lessonId, xpReward, lessonType);
           setIsCompletedState(true);
-          // Clear resume after successful completion
           await saveResumeData(userId, courseId, moduleId, lessonId, {});
 
           const progressId = `${userId}_${courseId}_${moduleId}_${lessonId}`;
@@ -241,6 +241,8 @@ export function QuizLesson({
         if (progSnap.exists()) {
           setXpEarned(progSnap.data().xpEarned || 0);
         }
+        // ✅ C3: Gọi onComplete trong retry path
+        if (onComplete) onComplete();
       }
     } catch (err) {
       console.error("Failed to save quiz:", err);
@@ -248,10 +250,27 @@ export function QuizLesson({
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [
+    isCompletedState,
+    submitting,
+    answers,
+    questions,
+    passingScore,
+    isRetry,
+    userId,
+    courseId,
+    moduleId,
+    lessonId,
+    xpReward,
+    lessonType,
+    onComplete,
+  ]);
+
+  // ... Phần render giữ nguyên (không thay đổi)
+  // (giữ nguyên toàn bộ JSX render từ file cũ)
+  // ...
 
   // ============ Render ============
-
   if (isCompletedState && existingScore !== null) {
     return (
       <div style={{ maxWidth: 800, margin: "0 auto", textAlign: "center" }}>

@@ -1,24 +1,32 @@
 // src/layout/LayoutClient.tsx
-/**
- * src/layout/LayoutClient.tsx
- * Layout cho phía người học (course player, catalog)
- * Thêm nút Admin Dashboard nếu user có role admin
- * Tích hợp Floating Pomodoro Widget
- */
 
 "use client";
 
 import React from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { BookOpen, LogOut, Home, MessageSquare, Trophy, Bell, UserCircle, Shield } from "lucide-react";
+import {
+  BookOpen,
+  LogOut,
+  Home,
+  MessageSquare,
+  Trophy,
+  Bell,
+  UserCircle,
+  Shield,
+  GraduationCap,
+} from "lucide-react";
 import NotificationBell from "../components/client/NotificationBell";
 import { FloatingPomodoroWidget } from "../components/FloatingPomodoroWidget/FloatingPomodoroWidget";
+import { PresenceUpdater } from "../components/common/PresenceUpdater"; // ✅ THÊM
 
 export default function LayoutClient() {
   const { currentUser, userProfile, logout } = useAuth();
   const navigate = useNavigate();
+
   const isAdmin = userProfile?.role === "admin";
+  const isInstructor = userProfile?.role === "instructor";
+  const showInstructorPortal = isAdmin || isInstructor;
 
   const handleLogout = async () => {
     await logout();
@@ -27,6 +35,9 @@ export default function LayoutClient() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0F0F1A", fontFamily: "Inter, sans-serif" }}>
+      {/* ✅ THÊM PresenceUpdater - giúp cập nhật online/offline trên toàn bộ app */}
+      <PresenceUpdater />
+
       <style>
         {`
           @keyframes fadeDown {
@@ -54,6 +65,7 @@ export default function LayoutClient() {
             alignItems: "center",
             justifyContent: "space-between",
             gap: 24,
+            flexWrap: "wrap",
           }}
         >
           {/* Logo */}
@@ -75,7 +87,7 @@ export default function LayoutClient() {
           </Link>
 
           {/* Navigation */}
-          <nav style={{ display: "flex", gap: 24, alignItems: "center" }}>
+          <nav style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
             <Link
               to="/"
               style={{
@@ -161,7 +173,32 @@ export default function LayoutClient() {
               <UserCircle size={16} /> Profile
             </Link>
 
-            {/* Nút Admin Dashboard chỉ hiển thị nếu user có role admin */}
+            {/* Nút Instructor Portal */}
+            {showInstructorPortal && (
+              <Link
+                to="/instructor/dashboard"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(69,241,197,0.12)",
+                  padding: "6px 12px",
+                  borderRadius: 20,
+                  color: "#45f1c5",
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  transition: "background 0.15s",
+                  border: "1px solid rgba(69,241,197,0.2)",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(69,241,197,0.22)")}
+                onMouseOut={(e) => (e.currentTarget.style.background = "rgba(69,241,197,0.12)")}
+              >
+                <GraduationCap size={14} /> Instructor
+              </Link>
+            )}
+
+            {/* Nút Admin Dashboard */}
             {isAdmin && (
               <Link
                 to="/admin/dashboard"
@@ -177,6 +214,7 @@ export default function LayoutClient() {
                   fontSize: 13,
                   fontWeight: 700,
                   transition: "background 0.15s",
+                  border: "1px solid rgba(108,99,255,0.2)",
                 }}
                 onMouseOver={(e) => (e.currentTarget.style.background = "rgba(108,99,255,0.25)")}
                 onMouseOut={(e) => (e.currentTarget.style.background = "rgba(108,99,255,0.15)")}
@@ -186,7 +224,7 @@ export default function LayoutClient() {
             )}
           </nav>
 
-          {/* Notification Bell + User menu */}
+          {/* User menu */}
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <NotificationBell />
 
@@ -237,7 +275,7 @@ export default function LayoutClient() {
               </>
             ) : (
               <Link
-                to="/admin/login"
+                to="/login"
                 style={{
                   background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
                   padding: "6px 16px",
@@ -271,7 +309,6 @@ export default function LayoutClient() {
         © 2026 Smart Review. All rights reserved.
       </footer>
 
-      {/* Floating Pomodoro Widget - xuất hiện trên mọi trang */}
       <FloatingPomodoroWidget />
     </div>
   );

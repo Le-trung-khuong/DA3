@@ -45,7 +45,7 @@ export default function LessonPlayer() {
     lessonId: string;
   }>();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
   const userId = currentUser?.uid;
 
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
@@ -54,6 +54,18 @@ export default function LessonPlayer() {
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [moduleTitle, setModuleTitle] = useState("");
   const [lessonLoading, setLessonLoading] = useState(true);
+
+  // ✅ D5: Guard cho userId null
+  if (!authLoading && !userId) {
+    return (
+      <div style={{ textAlign: "center", padding: 60, color: "#C7C4D8" }}>
+        <p>Vui lòng đăng nhập để tiếp tục.</p>
+        <Link to="/login" style={{ color: "#6C63FF", marginTop: 12, display: "inline-block" }}>
+          Đăng nhập
+        </Link>
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (course && moduleId && lessonId) {
@@ -74,12 +86,10 @@ export default function LessonPlayer() {
     }
   }, [course, moduleId, lessonId, navigate]);
 
-  // ✅ HIGH-7: Remove redundant refreshProgress, onSnapshot tự update
   const handleLessonComplete = async () => {
     navigate(`/learn/${courseId}/${moduleId}/${lessonId}`, { replace: true });
   };
 
-  // ✅ UX-6: Separate loading state
   if (courseLoading || lessonLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>

@@ -1,10 +1,13 @@
 /**
- * Smart Review — Admin Course Detail View
+ * Smart Review — Admin / Instructor Course Detail View
  * React + TypeScript + Firebase SDK v9+
  *
  * File: src/pages/admin/courses/CourseDetailAdmin.tsx
  *
  * Route: /admin/courses/:courseId
+ * 
+ * - Admin: xem tất cả.
+ * - Instructor: chỉ xem được nếu instructorId == uid.
  */
 
 "use client";
@@ -13,6 +16,7 @@ import React, { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Timestamp, collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
 import { db } from "../../../utils/config";
+import { useAuth } from "../../../contexts/AuthContext";
 
 // ─── Import custom hooks từ thư mục hooks ─────────────────────────────────────
 import { useDocument, useCollection } from "../../../hooks/useFirestore";
@@ -97,6 +101,7 @@ interface Course {
   updatedAt: any;
   xpTotal: number;
   completionRate: number;
+  instructorId?: string; // 👈 thêm
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -695,6 +700,7 @@ type TabId = typeof TABS[number]["id"];
 export default function CourseDetailAdmin() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const { currentUser, role } = useAuth(); // 👈 lấy user và role
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [enrollCount, setEnrollCount] = useState<number | null>(null);
   const [enrollLoading, setEnrollLoading] = useState(true);
@@ -738,7 +744,28 @@ export default function CourseDetailAdmin() {
     xpTotal: rawData.xpTotal || 0,
     createdAt: toDate(rawData.createdAt),
     updatedAt: toDate(rawData.updatedAt),
+    instructorId: rawData.instructorId || undefined, // 👈 thêm
   } : null;
+
+  // 👇 Kiểm tra quyền truy cập
+  if (course && role !== "admin" && course.instructorId !== currentUser?.uid) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0F0F1A", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter,sans-serif" }}>
+        <div style={{ textAlign: "center", maxWidth: 400 }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(255,180,171,.12)", border: "1px solid rgba(255,180,171,.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <AlertTriangle size={28} color="#ffb4ab" />
+          </div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#E4E1EE", marginBottom: 10 }}>Access Denied</h1>
+          <p style={{ fontSize: 13, color: "#C7C4D8", lineHeight: 1.6 }}>
+            You do not have permission to view this course. Only the instructor who created it can access it.
+          </p>
+          <button onClick={() => navigate("/admin/courses")} style={{ marginTop: 20, padding: "10px 28px", borderRadius: 14, fontSize: 14, fontWeight: 700, cursor: "pointer", background: "linear-gradient(135deg,#6C63FF,#9B59B6)", border: "none", color: "#fff" }}>
+            ← Back to Courses
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const stats = useMemo(() => {
     if (!course) return null;
@@ -847,19 +874,46 @@ export default function CourseDetailAdmin() {
 
         {activeTab === "overview" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, animation: "fadeDown .25s ease" }}>
-            <Section title="Instructor" subtitle="Linked via instructorId field in Firestore" icon={Award}>
-              <div style={{ textAlign: "center", padding: 20, color: "#C7C4D8" }}>
-                <Award size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
-                <p>No instructor assigned yet.</p>
-              </div>
-            </Section>
+            
+            {/* 👈 CỘT TRÁI: Instructor Section (chỉ hiển thị nếu không có instructor) */}
+            {!course.instructorId && (
+              <Section title="Instructor" subtitle="Linked via instructorId field in Firestore" icon={Award}>
+                <div style={{ textAlign: "center", padding: 20, color: "#C7C4D8" }}>
+                  <Award size={32} style={{ marginBottom: 12, opacity: 0.5 }} />
+                  <p>No instructor assigned yet.</p>
+                </div>
+              </Section>
+            )}
+
+            {/* 👈 CỘT PHẢI: Metadata Section (LUÔN hiển thị) */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <Section title="Metadata" icon={Info}>
                 {[
-                  ["Course ID", course.id], ["Status", course.status], ["Category", course.category],
-                  ["Level", course.level?.replace("_", " ") || "beginner"], ["Language", course.language],
-                  ["Price", fmtMoney(course.price)], ["Modules", course.modules?.length || 0],
-                  ["Created", fmtDate(course.createdAt)], ["Updated", fmtDate(course.updatedAt)],
+                  ["Course ID", course.id],
+                  ["Status", course.status],
+                  ["Category", course.category],
+                  ["Level", course.level?.replace("_", " ") || "beginner"],
+                  ["Language", course.language],
+                  ["Price", fmtMoney(course.price)],
+                  ["Modules", course.modules?.length || 0],
+                  ["Created", fmtDate(course.createdAt)],
+                  ["Updated", fmtDate(course.updatedAt)],
+                  ["Instructor ID", course.instructorId || "—"],
+                  // 🆕 Community
+                  [
+                    "Community",
+                    rawData?.enableCommunity ? (
+                      rawData?.communityRoomId ? (
+                        <a href={`/chat/${rawData.communityRoomId}`} target="_blank" rel="noopener noreferrer" style={{ color: "#6C63FF", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                          <ExternalLink size={12} /> Open Chat
+                        </a>
+                      ) : (
+                        <span style={{ color: "#FFB785" }}>Not created yet</span>
+                      )
+                    ) : (
+                      <span style={{ color: "#B0AEC0" }}>Disabled</span>
+                    )
+                  ],
                 ].map(([k, v]) => (
                   <div key={k as string} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#C7C4D8", textTransform: "uppercase", letterSpacing: ".06em" }}>{k}</span>

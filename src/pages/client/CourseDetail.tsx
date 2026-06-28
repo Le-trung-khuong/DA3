@@ -8,7 +8,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { where } from "firebase/firestore";
 import { useDocument } from "../../hooks/useFirestore";
 import { useProgress } from "../../hooks/useProgress";
@@ -41,7 +41,10 @@ import {
   Layers,
   ChevronRight,
   X,
+  MessageSquare,
+  Link as LinkIcon,
 } from "lucide-react";
+import { useCourseCommunity } from "../../hooks/useCourseCommunity";
 
 interface Lesson {
   id: string;
@@ -94,6 +97,8 @@ export default function CourseDetail() {
     currentUser?.uid,
     courseId
   );
+
+  const { roomId: communityRoomId, hasAccess, loading: communityLoading } = useCourseCommunity(courseId);
 
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [userReviewed, setUserReviewed] = useState(false);
@@ -347,17 +352,93 @@ export default function CourseDetail() {
                   </button>
                 )
               ) : (
-                <div
-                  style={{
-                    background: "rgba(69,241,197,0.1)",
-                    border: "1px solid rgba(69,241,197,0.3)",
-                    borderRadius: 12,
-                    padding: "8px 16px",
-                  }}
-                >
+                <div style={{ background: "rgba(69,241,197,0.1)", border: "1px solid rgba(69,241,197,0.3)", borderRadius: 12, padding: "8px 16px" }}>
                   <span style={{ color: "#45f1c5", fontWeight: 700 }}>✓ Enrolled</span>
                 </div>
               )}
+              
+              {/* 🆕 Join Community button */}
+              {isEnrolled && communityLoading && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "12px 20px",
+                    borderRadius: 12,
+                    background: "rgba(108,99,255,0.06)",
+                    border: "1px solid rgba(108,99,255,0.12)",
+                    color: "#6B6882",
+                    fontSize: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      border: "2px solid rgba(108,99,255,0.2)",
+                      borderTopColor: "#6C63FF",
+                      animation: "spin 0.8s linear infinite",
+                    }}
+                  />
+                  Loading community…
+                </div>
+              )}
+              {isEnrolled && communityRoomId && hasAccess && !communityLoading && (
+                <Link
+                  to={`/chat/${communityRoomId}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 24px",
+                    borderRadius: 12,
+                    background:
+                      "linear-gradient(135deg,rgba(108,99,255,0.14),rgba(155,89,182,0.09))",
+                    border: "1px solid rgba(108,99,255,0.28)",
+                    color: "#c4c0ff",
+                    fontWeight: 700,
+                    textDecoration: "none",
+                    fontSize: 15,
+                    transition: "all 0.2s",
+                    position: "relative",
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.background =
+                      "linear-gradient(135deg,rgba(108,99,255,0.22),rgba(155,89,182,0.16))";
+                    e.currentTarget.style.borderColor = "rgba(108,99,255,0.45)";
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow =
+                      "0 6px 20px rgba(108,99,255,0.2)";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.background =
+                      "linear-gradient(135deg,rgba(108,99,255,0.14),rgba(155,89,182,0.09))";
+                    e.currentTarget.style.borderColor = "rgba(108,99,255,0.28)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <MessageSquare size={17} />
+                  Join Community
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: ".04em",
+                      background: "rgba(255,215,0,0.14)",
+                      color: "#FFD700",
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      marginLeft: 2,
+                    }}
+                  >
+                    💬 LIVE
+                  </span>
+                </Link>
+              )}
+
               {completedLessons > 0 && (
                 <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 12, padding: "8px 16px" }}>
                   <span style={{ color: "#C7C4D8", fontWeight: 600 }}>

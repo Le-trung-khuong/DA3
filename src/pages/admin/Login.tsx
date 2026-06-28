@@ -1,13 +1,13 @@
 /**
  * src/pages/admin/Login.tsx
- * Tự động thêm createdAt nếu user cũ thiếu
+ * Tự động thêm user document nếu chưa có (schema chuẩn)
  */
 
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../utils/config";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -30,36 +30,84 @@ export default function Login() {
       const userSnap = await getDoc(userRef);
 
       if (!userSnap.exists()) {
-        // 3. Tạo mới document
+        // 3. Tạo mới document với schema chuẩn
+        const now = serverTimestamp();
         await setDoc(userRef, {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName ?? email.split("@")[0],
+          photoURL: user.photoURL ?? null,
+          phone: null,
+          bio: null,
           role: "student",
           status: "active",
+          bannedAt: null,
+          bannedUntil: null,
+          bannedReason: null,
           level: 1,
-          xp: 0,
+          totalXP: 0,
           currentStreak: 0,
-          totalLessons: 0,
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp(),
+          longestStreak: 0,
+          lastStreakDate: null,
+          dailyGoalMinutes: 30,
+          unreadCount: 0,
+          createdAt: now,
+          updatedAt: now,
+          lastLogin: now,
+          lastActiveAt: now,
         });
-        console.log("✅ Tạo mới user document cho:", user.email);
+        console.log("✅ Tạo mới user document (schema chuẩn) cho:", user.email);
       } else {
-        // 4. Cập nhật lastLogin, và thêm createdAt nếu thiếu
+        // 4. Cập nhật lastLogin và migration nếu thiếu field
         const existingData = userSnap.data();
         const updatePayload: Record<string, any> = {
           lastLogin: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         };
-        
-        // Migration: thêm createdAt nếu user cũ chưa có
-        if (!existingData.createdAt) {
-          updatePayload.createdAt = serverTimestamp();
-          console.log("🔧 Đã thêm createdAt cho user cũ:", user.email);
+
+        // Migration: thêm các field còn thiếu
+        const requiredFields = [
+          "displayName", "photoURL", "phone", "bio",
+          "role", "status", "bannedAt", "bannedUntil", "bannedReason",
+          "level", "totalXP", "currentStreak", "longestStreak", "lastStreakDate",
+          "dailyGoalMinutes", "unreadCount", "createdAt", "updatedAt", "lastActiveAt"
+        ];
+        for (const field of requiredFields) {
+          if (!(field in existingData)) {
+            if (field === "createdAt" || field === "updatedAt" || field === "lastLogin" || field === "lastActiveAt") {
+              updatePayload[field] = serverTimestamp();
+            } else if (field === "displayName") {
+              updatePayload.displayName = user.displayName ?? email.split("@")[0];
+            } else if (field === "photoURL") {
+              updatePayload.photoURL = user.photoURL ?? null;
+            } else if (field === "role") {
+              updatePayload.role = "student";
+            } else if (field === "status") {
+              updatePayload.status = "active";
+            } else if (field === "level") {
+              updatePayload.level = 1;
+            } else if (field === "totalXP") {
+              updatePayload.totalXP = 0;
+            } else if (field === "currentStreak") {
+              updatePayload.currentStreak = 0;
+            } else if (field === "longestStreak") {
+              updatePayload.longestStreak = 0;
+            } else if (field === "dailyGoalMinutes") {
+              updatePayload.dailyGoalMinutes = 30;
+            } else if (field === "unreadCount") {
+              updatePayload.unreadCount = 0;
+            } else if (field === "phone" || field === "bio" || field === "bannedAt" || field === "bannedUntil" || field === "bannedReason" || field === "lastStreakDate") {
+              updatePayload[field] = null;
+            }
+          }
         }
-        
-        await setDoc(userRef, updatePayload, { merge: true });
-        console.log("🔄 Đã cập nhật lastLogin cho:", user.email);
+
+        if (Object.keys(updatePayload).length > 0) {
+          await setDoc(userRef, updatePayload, { merge: true });
+          console.log("🔧 Đã cập nhật/migrate user:", user.email, Object.keys(updatePayload));
+        } else {
+          console.log("🔄 Đã cập nhật lastLogin cho:", user.email);
+        }
       }
 
       // 5. Chuyển hướng đến trang quản lý users
@@ -169,6 +217,26 @@ export default function Login() {
           >
             {loading ? "Logging in..." : "Sign In"}
           </button>
+          <div
+            style={{
+              marginTop: 18,
+              textAlign: "center",
+              fontSize: 13,
+              color: "#C7C4D8",
+            }}
+          >
+            Chưa có tài khoản?{" "}
+            <Link
+              to="/register"
+              style={{
+                color: "#8B7CFF",
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              Đăng ký ngay
+            </Link>
+          </div>
         </form>
       </div>
     </div>

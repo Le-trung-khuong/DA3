@@ -1,6 +1,9 @@
 /**
- * Smart Review — Admin Course List (Firestore Realtime)
+ * Smart Review — Admin / Instructor Course List (Firestore Realtime)
  * File: src/pages/admin/courses/CourseListAdmin.tsx
+ * 
+ * - Admin: thấy tất cả khóa học.
+ * - Instructor: chỉ thấy khóa học có instructorId = uid của họ.
  */
 
 "use client";
@@ -21,6 +24,7 @@ import {
   type QueryConstraint,
 } from "firebase/firestore";
 import { db } from "../../../utils/config";
+import { useAuth } from "../../../contexts/AuthContext";
 
 // Lucide icons
 import {
@@ -71,6 +75,7 @@ interface Course {
   durationHours?: number;
   createdAt: Date;
   updatedAt: Date;
+  instructorId?: string; // 👈 thêm
 }
 
 interface CourseFiltersState {
@@ -117,6 +122,8 @@ const LEVEL_BADGE: Record<CourseLevel, { label: string; color: string; bg: strin
 // ==================== MAIN COMPONENT ====================
 export default function CourseListAdmin() {
   const navigate = useNavigate();
+  const { currentUser, role } = useAuth(); // 👈 lấy user và role
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,11 +139,18 @@ export default function CourseListAdmin() {
 
   // ========== REALTIME FIRESTORE LISTENER ==========
   useEffect(() => {
+    if (!currentUser) return; // chưa login thì không query
+
     console.log("[CourseList] Setting up Firestore listener");
 
     const constraints: QueryConstraint[] = [
       orderBy(sortField === "title" ? "title" : sortField === "price" ? "price" : sortField === "updatedAt" ? "updatedAt" : "createdAt", sortDir),
     ];
+
+    // 👇 Nếu không phải admin → chỉ lấy khóa học của instructor
+    if (role !== "admin") {
+      constraints.push(where("instructorId", "==", currentUser.uid));
+    }
 
     if (statusFilter !== "all") {
       constraints.push(where("status", "==", statusFilter));
@@ -170,10 +184,11 @@ export default function CourseListAdmin() {
             durationHours: data.totalDurationHours || 0,
             createdAt: data.createdAt?.toDate?.() ?? new Date(),
             updatedAt: data.updatedAt?.toDate?.() ?? new Date(),
+            instructorId: data.instructorId || undefined,
           };
         });
 
-        // Client-side search (Firestore doesn't support full-text search natively)
+        // Client-side search
         if (search.trim()) {
           const qLower = search.toLowerCase();
           courseList = courseList.filter(
@@ -193,7 +208,7 @@ export default function CourseListAdmin() {
     );
 
     return () => unsub();
-  }, [sortField, sortDir, statusFilter, categoryFilter, levelFilter]);
+  }, [currentUser, role, sortField, sortDir, statusFilter, categoryFilter, levelFilter]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -283,8 +298,14 @@ export default function CourseListAdmin() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>Course Management</h1>
-          <p style={{ color: "#C7C4D8" }}>Firestore: <code style={{ background: "rgba(108,99,255,.12)", padding: "2px 6px", borderRadius: 6 }}>courses</code> • Realtime onSnapshot</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: "#E4E1EE" }}>
+            {role === "admin" ? "Course Management" : "My Courses"}
+          </h1>
+          <p style={{ color: "#C7C4D8" }}>
+            Firestore: <code style={{ background: "rgba(108,99,255,.12)", padding: "2px 6px", borderRadius: 6 }}>courses</code> 
+            {role !== "admin" && ` · filtered by instructorId: ${currentUser?.uid.slice(0, 8)}…`}
+            {" • Realtime onSnapshot"}
+          </p>
         </div>
         <button
           onClick={() => navigate("/admin/courses/new")}
