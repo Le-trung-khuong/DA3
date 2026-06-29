@@ -4,6 +4,8 @@ import { useCollection } from "../../hooks/useFirestore";
 import { orderBy, limit } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
 import { Trophy, Zap, Flame, Search, Loader } from "lucide-react";
+import { getLevelInfo } from "../../services/levelService";
+import { LevelBadge } from "../../components/common/LevelBadge";
 import { checkAndUnlockAchievementsLegacy } from "../../services/achievementService";
 
 interface LeaderboardUser {
@@ -12,7 +14,6 @@ interface LeaderboardUser {
   email: string;
   photoURL?: string;
   totalXP: number;
-  level: number;
   currentStreak: number;
   role: string;
 }
@@ -53,7 +54,6 @@ export default function LeaderboardPage() {
       email: doc.email || "",
       photoURL: doc.photoURL,
       totalXP: doc.totalXP || 0,
-      level: doc.level || 1,
       currentStreak: doc.currentStreak || 0,
       role: doc.role || "student",
     }));
@@ -166,6 +166,7 @@ export default function LeaderboardPage() {
           else if (rank === 2) medalEmoji = "🥈";
           else if (rank === 3) medalEmoji = "🥉";
           const isCurrentUser = user.uid === currentUserId;
+          const levelInfo = getLevelInfo(user.totalXP); // ✅ tính động
 
           return (
             <div
@@ -214,9 +215,14 @@ export default function LeaderboardPage() {
                   <Flame size={12} color="#ff6b6b" /> {user.currentStreak} days
                 </div>
               </div>
-              <div style={{ background: "rgba(108,99,255,0.2)", padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 700, color: "#c4c0ff" }}>
-                Lv.{user.level}
-              </div>
+              {/* ✅ Level Badge thay vì text cũ */}
+              <LevelBadge
+                level={levelInfo.level}
+                title={levelInfo.title}
+                icon={levelInfo.icon}
+                color={levelInfo.color}
+                size="sm"
+              />
             </div>
           );
         })}

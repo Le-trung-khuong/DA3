@@ -6,7 +6,6 @@ export interface UserProfile {
   photoURL?: string;
   role: string;
   totalXP: number;
-  level: number;
   streakDays: number;
   joinedAt: Date;
   lastActiveAt?: Date;

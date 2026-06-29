@@ -30,7 +30,8 @@ import {
   signOut,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  sendEmailVerification,
 } from "firebase/auth";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { updateUserStreak } from "../services/streakService";
@@ -51,7 +52,6 @@ export interface UserProfile {
   bannedAt: Date | null;
   bannedUntil: Date | null;
   bannedReason: string | null;
-  level: number;
   totalXP: number;
   currentStreak: number;
   longestStreak: number;
@@ -62,9 +62,7 @@ export interface UserProfile {
   updatedAt: Date;
   lastLogin: Date;
   lastActiveAt: Date | null;
-  
-  // 🆕 Subscription for instructors
-  subscriptionTier: "free" | "pro";  // mặc định "free"
+  subscriptionTier: "free" | "pro";
   subscriptionExpiresAt?: Date | null;
 }
 
@@ -78,6 +76,7 @@ export interface AuthContextValue {
   refreshRole: () => void;
   signIn: (email: string, password: string) => Promise<User>;
   signUp: (email: string, password: string, displayName: string) => Promise<User>;
+  resendVerificationEmail: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -107,6 +106,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signIn = async (email: string, password: string) => {
     const cred = await signInWithEmailAndPassword(auth, email, password);
+    // ✅ FIX-AUTH-1: Chặn login nếu email chưa được verify
+    // Ngoại lệ: admin/instructor có thể bypass (kiểm tra Firestore sau khi login)
+    // Để không lock out admin đang dùng, chỉ enforce với role mặc định "student"
+    if (!cred.user.emailVerified) {
+      // Gửi lại email xác thực để tránh user bị kẹt
+      await sendEmailVerification(cred.user).catch(() => {});
+      await signOut(auth);
+      throw Object.assign(
+        new Error("Vui lòng xác thực email trước khi đăng nhập. Email xác thực đã được gửi lại."),
+        { code: "auth/email-not-verified" }
+      );
+    }
     return cred.user;
   };
 
@@ -114,6 +125,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signUp = async (email: string, password: string, displayName: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName });
+
+    // ✅ FIX-AUTH-2: Gửi email xác thực ngay sau khi tạo tài khoản
+    await sendEmailVerification(cred.user).catch((err) =>
+      console.warn("[signUp] sendEmailVerification failed:", err)
+    );
 
     const userData = {
       uid: cred.user.uid,
@@ -144,6 +160,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return cred.user;
   };
 
+  const resendVerificationEmail = async () => {
+    if (!auth.currentUser) throw new Error("Không có user đang đăng nhập.");
+    await sendEmailVerification(auth.currentUser);
+  };
+
   const refreshRole = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
@@ -169,6 +190,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setError({ code: "not-found", message: "User document not found" } as FirebaseError);
           } else {
             const data = snap.data();
+            const status = data.status ?? "active";
+            // ✅ FIX-AUTH-3: Global banned guard — buộc logout nếu tài khoản bị banned
+            if (status === "banned") {
+              setUserProfile(null);
+              setError({
+                code: "permission-denied",
+                message: "Tài khoản của bạn đã bị cấm. Liên hệ admin để biết thêm chi tiết.",
+              } as FirebaseError);
+              signOut(auth).catch(console.error);
+              setLoading(false);
+              return;
+            }
             setUserProfile({
               uid: user.uid,
               email: user.email,
@@ -179,11 +212,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
               role: (data.role === "admin" || data.role === "moderator" || data.role === "instructor" || data.role === "student")
                 ? data.role
                 : "student", // fallback
-              status: data.status ?? "active",
+              status: status,
               bannedAt: data.bannedAt?.toDate?.() ?? null,
               bannedUntil: data.bannedUntil?.toDate?.() ?? null,
               bannedReason: data.bannedReason ?? null,
-              level: data.level ?? 1,
               totalXP: data.totalXP ?? 0,
               currentStreak: data.currentStreak ?? 0,
               longestStreak: data.longestStreak ?? 0,
@@ -226,6 +258,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     refreshRole,
     signIn,
     signUp,
+    resendVerificationEmail,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

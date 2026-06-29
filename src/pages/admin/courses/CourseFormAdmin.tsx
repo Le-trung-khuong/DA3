@@ -1145,6 +1145,12 @@ export default function CourseFormAdmin() {
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
+    // ✅ FIX-COURSE-1: Guard currentUser null — tránh course vô chủ
+    if (!currentUser) {
+      showToast("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "error");
+      return;
+    }
+
     setSaveState("saving");
 
     const cleanedModules = removeUndefined(form.modules);

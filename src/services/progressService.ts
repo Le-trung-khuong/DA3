@@ -24,6 +24,13 @@ import { checkAndGenerateCertificate } from "./certificateService";
 import { checkAndUnlockAchievementsLegacy } from "./achievementService";
 import { checkAndCompleteDailyTask } from "./dailyGoalService";
 import { mergeSegments } from "../utils/videoTracking";
+import {
+  calculateLessonXP,
+  checkDailyXPLimit,
+  applyDiminishingReturns,
+  getTodayLessonCount,
+  DAILY_XP_LIMIT,
+} from "./xpService";
 
 // ============ TYPES ============
 export interface LessonProgress {
@@ -332,15 +339,16 @@ export async function checkCompletionRequirements(
 }
 
 // ============================================================================
-// DIRECT FIRESTORE WRITE (new implementation)
+// COMPLETE LESSON CLIENT (CẬP NHẬT VỚI XP MỚI)
 // ============================================================================
 
 /**
  * Client-side function to mark a lesson as complete.
  * Uses Firestore transaction (atomic) and runs side effects after.
  *
- * ✅ CRITICAL FIX: Tất cả reads được thực hiện TRƯỚC transaction.
- * Chỉ các writes mới nằm trong transaction.
+ * ✅ NEW: Tính XP dựa trên loại lesson, thời lượng, số thẻ, v.v.
+ * ✅ NEW: Giới hạn XP mỗi ngày (300 XP)
+ * ✅ NEW: Diminishing returns (giảm dần sau bài thứ 3)
  */
 export async function completeLessonClient(
   userId: string,
@@ -354,7 +362,7 @@ export async function completeLessonClient(
   const progressRef = doc(db, "progress", progressId);
   const userRef = doc(db, "users", userId);
 
-  // ✅ 1. Tất cả reads (không transactional) thực hiện TRƯỚC khi vào transaction
+  // ─── 1. Kiểm tra completion requirements ─────────────────────────────────
   const requirements = await checkCompletionRequirements(
     userId,
     courseId,
@@ -366,14 +374,89 @@ export async function completeLessonClient(
     throw new Error(`Completion requirements not met: ${requirements.reason}`);
   }
 
-  const activeEvent = await getActiveEvent();
-  let finalXPReward = xpReward;
-  if (activeEvent) {
-    finalXPReward = Math.floor(xpReward * activeEvent.multiplier);
-    console.log(`🎉 Event active: ${activeEvent.name} x${activeEvent.multiplier} → ${finalXPReward} XP`);
+  // ─── 2. Kiểm tra giới hạn XP hàng ngày ─────────────────────────────────
+  const xpCheck = await checkDailyXPLimit(userId);
+  if (!xpCheck.allowed) {
+    throw new Error(
+      `Bạn đã đạt giới hạn XP hôm nay (${xpCheck.limit} XP). Hãy quay lại ngày mai để tiếp tục kiếm XP!`
+    );
   }
 
-  // ✅ 2. Transaction chỉ chứa writes (atomic)
+  // ─── 3. Lấy thông tin lesson để tính XP ─────────────────────────────────
+  let durationMinutes = 10;
+  let cardCount = 0;
+  let isPerfect = false;
+  let isPassing = true;
+
+  try {
+    const courseRef = doc(db, "courses", courseId);
+    const courseSnap = await getDoc(courseRef);
+    if (courseSnap.exists()) {
+      const courseData = courseSnap.data();
+      const modules = courseData.modules || [];
+      for (const module of modules) {
+        const lessons = module.lessons || [];
+        for (const lesson of lessons) {
+          if (lesson.id === lessonId) {
+            durationMinutes = lesson.duration || 10;
+
+            // Quiz: kiểm tra perfect score
+            if (lessonType === "quiz") {
+              const progressSnap = await getDoc(progressRef);
+              if (progressSnap.exists()) {
+                const quizScore = progressSnap.data().quizScore || 0;
+                isPerfect = quizScore === 100;
+                isPassing = quizScore >= (lesson.content?.data?.passingScore || 70);
+              }
+            }
+
+            // Flashcard: đếm số thẻ
+            if (lessonType === "flashcard") {
+              cardCount = lesson.content?.data?.cards?.length || 0;
+            }
+            break;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[completeLessonClient] Could not fetch lesson details:`, err);
+  }
+
+  // ─── 4. Tính XP dựa trên loại lesson ────────────────────────────────────
+  let calculatedXP = calculateLessonXP({
+    lessonType,
+    durationMinutes,
+    cardCount,
+    isPerfect,
+    isPassing,
+  });
+
+  // ─── 5. Áp dụng diminishing returns ─────────────────────────────────────
+  const todayLessons = await getTodayLessonCount(userId);
+  calculatedXP = applyDiminishingReturns(calculatedXP, todayLessons + 1);
+
+  // ─── 6. Đảm bảo không vượt quá giới hạn còn lại ──────────────────────
+  const finalXPReward = Math.min(calculatedXP, xpCheck.remaining);
+
+  // ─── 7. Áp dụng event multiplier (nếu có) ──────────────────────────────
+  let eventMultiplier = 1;
+  try {
+    const activeEvent = await getActiveEvent();
+    if (activeEvent) {
+      eventMultiplier = activeEvent.multiplier || 1;
+    }
+  } catch (err) {
+    console.warn("[completeLessonClient] Could not fetch active event:", err);
+  }
+
+  const finalXPWithEvent = Math.floor(finalXPReward * eventMultiplier);
+
+  console.log(
+    `[XP] Lesson ${lessonId}: base=${calculatedXP}, afterDiminishing=${finalXPReward}, event=x${eventMultiplier}, final=${finalXPWithEvent}`
+  );
+
+  // ─── 8. Transaction ──────────────────────────────────────────────────────
   await runTransaction(db, async (transaction) => {
     const [progressSnap, userSnap] = await Promise.all([
       transaction.get(progressRef),
@@ -384,14 +467,12 @@ export async function completeLessonClient(
       throw new Error("User not found");
     }
 
-    // Idempotency: if already completed, skip write
     const existingData = progressSnap.exists() ? progressSnap.data() : null;
     if (existingData?.xpEarned && existingData.xpEarned > 0) {
       console.log(`[completeLessonClient] Lesson ${lessonId} already completed, skipping.`);
       return;
     }
 
-    // Prepare progress document
     const updateData: any = {
       userId,
       courseId,
@@ -399,7 +480,7 @@ export async function completeLessonClient(
       lessonId,
       lessonType: lessonType,
       status: "completed",
-      xpEarned: finalXPReward,
+      xpEarned: finalXPWithEvent,
       completedAt: serverTimestamp(),
       lastActivityAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -410,21 +491,19 @@ export async function completeLessonClient(
       updateData.startedAt = serverTimestamp();
     }
 
-    // Write both documents atomically
     transaction.set(progressRef, updateData, { merge: true });
     transaction.update(userRef, {
-      totalXP: increment(finalXPReward),
+      totalXP: increment(finalXPWithEvent),
       updatedAt: serverTimestamp(),
     });
   });
 
-  console.log(`[completeLessonClient] Transaction committed, XP awarded: ${finalXPReward}`);
+  console.log(`[completeLessonClient] Transaction committed, XP awarded: ${finalXPWithEvent}`);
 
-  // ✅ 3. Side effects (fire-and-forget, do not block main flow)
-  // ✅ B2: Sử dụng finalXPReward thay vì xpReward
+  // ─── 9. Side effects ─────────────────────────────────────────────────────
   Promise.allSettled([
     updateUserStreak(userId).catch((err) => console.error("Streak error:", err)),
-    addXPLog(userId, finalXPReward, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
+    addXPLog(userId, finalXPWithEvent, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
       (err) => console.error("XPLog error:", err)
     ),
     checkAndCompleteDailyTask(userId, lessonType).catch((err) => console.error("DailyTask error:", err)),

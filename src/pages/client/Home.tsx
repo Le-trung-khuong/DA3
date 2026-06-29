@@ -5,7 +5,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { useUserEnrollment } from '../../hooks/useUserEnrollment';
+import { useLevel } from '../../hooks/useLevel';
+import { LevelBadge } from '../../components/common/LevelBadge';
 import DailyGoals from '../../components/client/DailyGoals';
 import LearningProgress from '../../components/client/LearningProgress';
 import RecommendedCourses from '../../components/client/RecommendedCourses';
@@ -13,14 +14,13 @@ import PomodoroTimer from '../../components/client/PomodoroTimer/PomodoroTimer';
 import { getUserOverallProgress } from '../../services/progressService';
 
 const Home: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const userId = currentUser?.uid;
+  const levelInfo = useLevel(userProfile?.totalXP);
   
-  // State để lưu courseId đầu tiên đang học
   const [firstCourseId, setFirstCourseId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
-  // Lấy khóa học đầu tiên có tiến độ
   useEffect(() => {
     if (!userId) {
       setLoading(false);
@@ -47,13 +47,32 @@ const Home: React.FC = () => {
     <div style={{ background: '#0F0F1A', minHeight: '100vh', padding: '32px 0' }}>
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 24px' }}>
         {/* Header */}
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#E4E1EE', margin: 0 }}>
-            Chào mừng bạn trở lại 👋
-          </h1>
-          <p style={{ fontSize: 16, color: '#C7C4D8', marginTop: 4 }}>
-            Hãy tiếp tục hành trình học tập của bạn
-          </p>
+        <div style={{ 
+          marginBottom: 32, 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}>
+          <div>
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: '#E4E1EE', margin: 0 }}>
+              Chào mừng bạn trở lại 👋
+            </h1>
+            <p style={{ fontSize: 16, color: '#C7C4D8', marginTop: 4 }}>
+              Hãy tiếp tục hành trình học tập của bạn
+            </p>
+          </div>
+          {currentUser && (
+            <LevelBadge
+              level={levelInfo.level}
+              title={levelInfo.title}
+              icon={levelInfo.icon}
+              color={levelInfo.color}
+              size="md"
+              showTitle={false}
+            />
+          )}
         </div>
 
         {/* Grid 2 cột */}
@@ -67,7 +86,6 @@ const Home: React.FC = () => {
           {/* Cột phải */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <PomodoroTimer />
-            {/* ✅ Truyền courseId để hiển thị gợi ý bài học tiếp theo */}
             {!loading && <RecommendedCourses courseId={firstCourseId} />}
           </div>
         </div>

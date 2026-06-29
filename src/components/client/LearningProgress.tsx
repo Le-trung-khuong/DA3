@@ -1,28 +1,28 @@
 // src/components/client/LearningProgress.tsx
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useLevel } from '../../hooks/useLevel';
+import { LevelBadge } from '../../components/common/LevelBadge';
 import { getUserOverallProgress, CourseProgress } from '../../services/progressService';
 import { BookOpen } from 'lucide-react';
 import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../../utils/config';
 
 const LearningProgress: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
+  const levelInfo = useLevel(userProfile?.totalXP);
   const [progress, setProgress] = useState<CourseProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hàm gộp dữ liệu theo courseId để đảm bảo key duy nhất
   const aggregateProgress = (data: CourseProgress[]): CourseProgress[] => {
     const map = new Map<string, CourseProgress>();
     data.forEach(item => {
       if (map.has(item.courseId)) {
-        // Nếu đã có, lấy bản ghi có percent cao nhất (có thể điều chỉnh logic)
         const existing = map.get(item.courseId)!;
         if (item.percent > existing.percent) {
           map.set(item.courseId, { ...item });
         }
-        // Bạn có thể đổi thành cộng dồn hoặc tính trung bình tùy nhu cầu
       } else {
         map.set(item.courseId, { ...item });
       }
@@ -30,7 +30,6 @@ const LearningProgress: React.FC = () => {
     return Array.from(map.values());
   };
 
-  // Hàm fetch dữ liệu với debounce
   const fetchProgress = useCallback(async (force = false) => {
     if (!currentUser) {
       setProgress([]);
@@ -47,7 +46,6 @@ const LearningProgress: React.FC = () => {
     try {
       setLoading(true);
       const data = await getUserOverallProgress(currentUser.uid);
-      // Gộp dữ liệu trước khi set state
       const aggregated = aggregateProgress(data);
       setProgress(aggregated);
     } catch (err) {
@@ -58,7 +56,6 @@ const LearningProgress: React.FC = () => {
     }
   }, [currentUser]);
 
-  // Initial fetch và real-time listener
   useEffect(() => {
     if (!currentUser) {
       setLoading(false);
@@ -106,9 +103,19 @@ const LearningProgress: React.FC = () => {
 
   return (
     <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', margin: 0, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <BookOpen size={22} color="#6C63FF" /> Tiến độ học tập
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BookOpen size={22} color="#6C63FF" /> Tiến độ học tập
+        </h2>
+        <LevelBadge
+          level={levelInfo.level}
+          title={levelInfo.title}
+          icon={levelInfo.icon}
+          color={levelInfo.color}
+          size="sm"
+          showTitle={false}
+        />
+      </div>
 
       {progress.length > 0 && (
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -127,7 +134,6 @@ const LearningProgress: React.FC = () => {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {progress.map(p => (
-          // Bây giờ key là courseId duy nhất vì đã gộp dữ liệu
           <div key={p.courseId}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#E4E1EE' }}>
               <span>{p.courseName}</span>

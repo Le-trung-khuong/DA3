@@ -223,12 +223,20 @@ const Register: React.FC = () => {
         setError('');
         if (!fullName.trim()) { setError('Vui lòng nhập họ và tên.'); return; }
         if (!email.trim())    { setError('Vui lòng nhập email.'); return; }
-        if (password.length < 6) { setError('Mật khẩu phải có ít nhất 6 ký tự.'); return; }
+        // ✅ FIX-REG-1: Nâng min password lên 8 ký tự (Firebase cho phép 6,
+        // nhưng 8+ là best practice bảo mật thực tế)
+        if (password.length < 8) { setError('Mật khẩu phải có ít nhất 8 ký tự.'); return; }
         if (password !== confirmPassword) { setError('Hai mật khẩu không khớp.'); return; }
         setLoading(true);
         try {
             await signUp(email, password, fullName);
-            navigate('/');
+            // ✅ FIX-REG-2: Không navigate ngay — nhắc user xác thực email trước
+            setError('');
+            navigate('/login', {
+              state: {
+                message: 'Tài khoản đã được tạo! Vui lòng kiểm tra email để xác thực trước khi đăng nhập.',
+              },
+            });
         } catch (err: any) {
             setError(translateFirebaseError(err));
         } finally {

@@ -1,5 +1,5 @@
 // src/components/player/QuizLesson.tsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { CheckCircle, XCircle, Clock, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import {
   saveQuizAttempt,
@@ -63,6 +63,37 @@ export function QuizLesson({
   const [isRetry, setIsRetry] = useState(false);
   const [xpEarned, setXpEarned] = useState(0);
   const [timerWarningsShown, setTimerWarningsShown] = useState<Set<number>>(new Set());
+
+  const shuffledQuestions = useMemo(() => {
+    if (initialCompleted) return questions;
+    const qs = questions.map((q) => ({
+      ...q,
+      _shuffledOptions: (() => {
+        const indexed = q.options.map((opt, i) => ({ opt, i }));
+        for (let j = indexed.length - 1; j > 0; j--) {
+          const k = Math.floor(Math.random() * (j + 1));
+          [indexed[j], indexed[k]] = [indexed[k], indexed[j]];
+        }
+        return indexed;
+      })(),
+    }));
+    for (let j = qs.length - 1; j > 0; j--) {
+      const k = Math.floor(Math.random() * (j + 1));
+      [qs[j], qs[k]] = [qs[k], qs[j]];
+    }
+    return qs.map((q) => ({
+      ...q,
+      options: q._shuffledOptions.map((x) => x.opt),
+      correctOptionIndex: q._shuffledOptions.findIndex((x) => x.i === q.correctOptionIndex),
+    }));
+  }, [lessonId, initialCompleted]);
+
+  // ✅ Khi shuffledQuestions thay đổi, cập nhật timeLeft nếu chưa submit và chưa complete
+  useEffect(() => {
+    if (!submitted && !isCompletedState) {
+      setTimeLeft(60 * shuffledQuestions.length);
+    }
+  }, [shuffledQuestions, submitted, isCompletedState]);
 
   useEffect(() => {
     const checkCompletion = async () => {
@@ -161,7 +192,7 @@ export function QuizLesson({
     setScore(0);
     setPassed(false);
     setCurrentIndex(0);
-    setTimeLeft(60 * questions.length);
+    setTimeLeft(60 * shuffledQuestions.length);
     setTimerActive(true);
     setShowReview(false);
     setSubmitting(false);
@@ -172,29 +203,28 @@ export function QuizLesson({
       quizRetry: true,
       quizAnswers: {},
       quizCurrentIndex: 0,
-      quizTimeLeft: 60 * questions.length,
+      quizTimeLeft: 60 * shuffledQuestions.length,
     });
   };
 
-  // ✅ B3: Wrap handleSubmit với useCallback và đầy đủ deps
   const handleSubmit = useCallback(async () => {
     if (isCompletedState) {
       alert("Bạn đã hoàn thành quiz này rồi!");
       return;
     }
     if (submitting) return;
-    if (Object.keys(answers).length !== questions.length) {
-      alert(`Vui lòng trả lời tất cả ${questions.length} câu hỏi.`);
+    if (Object.keys(answers).length !== shuffledQuestions.length) {
+      alert(`Vui lòng trả lời tất cả ${shuffledQuestions.length} câu hỏi.`);
       return;
     }
     setSubmitting(true);
     setTimerActive(false);
 
     let correct = 0;
-    questions.forEach((q) => {
+    shuffledQuestions.forEach((q) => {
       if (answers[q.id] === q.correctOptionIndex) correct++;
     });
-    const calcScore = (correct / questions.length) * 100;
+    const calcScore = (correct / shuffledQuestions.length) * 100;
     const isPass = calcScore >= passingScore;
     setScore(calcScore);
     setPassed(isPass);
@@ -208,7 +238,7 @@ export function QuizLesson({
       answers: Object.entries(answers).map(([qid, selected]) => ({
         questionId: qid,
         selectedOptionIndex: selected,
-        isCorrect: questions.find((q) => q.id === qid)?.correctOptionIndex === selected,
+        isCorrect: shuffledQuestions.find((q) => q.id === qid)?.correctOptionIndex === selected,
       })),
     };
 
@@ -241,7 +271,6 @@ export function QuizLesson({
         if (progSnap.exists()) {
           setXpEarned(progSnap.data().xpEarned || 0);
         }
-        // ✅ C3: Gọi onComplete trong retry path
         if (onComplete) onComplete();
       }
     } catch (err) {
@@ -254,7 +283,7 @@ export function QuizLesson({
     isCompletedState,
     submitting,
     answers,
-    questions,
+    shuffledQuestions,
     passingScore,
     isRetry,
     userId,
@@ -265,10 +294,6 @@ export function QuizLesson({
     lessonType,
     onComplete,
   ]);
-
-  // ... Phần render giữ nguyên (không thay đổi)
-  // (giữ nguyên toàn bộ JSX render từ file cũ)
-  // ...
 
   // ============ Render ============
   if (isCompletedState && existingScore !== null) {
@@ -317,7 +342,7 @@ export function QuizLesson({
         </div>
         {showReview && (
           <QuizReviewModal
-            questions={questions}
+            questions={shuffledQuestions}
             answers={answers}
             score={score || existingScore}
             onClose={() => setShowReview(false)}
@@ -356,7 +381,7 @@ export function QuizLesson({
           </button>
         </div>
         {showReview && (
-          <QuizReviewModal questions={questions} answers={answers} score={score} onClose={() => setShowReview(false)} />
+          <QuizReviewModal questions={shuffledQuestions} answers={answers} score={score} onClose={() => setShowReview(false)} />
         )}
       </div>
     );
@@ -387,14 +412,14 @@ export function QuizLesson({
           </button>
         </div>
         {showReview && (
-          <QuizReviewModal questions={questions} answers={answers} score={score} onClose={() => setShowReview(false)} />
+          <QuizReviewModal questions={shuffledQuestions} answers={answers} score={score} onClose={() => setShowReview(false)} />
         )}
       </div>
     );
   }
 
   if (submitted && !passed) {
-    const correctCount = questions.filter((q) => answers[q.id] === q.correctOptionIndex).length;
+    const correctCount = shuffledQuestions.filter((q) => answers[q.id] === q.correctOptionIndex).length;
     return (
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -408,7 +433,7 @@ export function QuizLesson({
 
         <div style={{ marginBottom: 32 }}>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16 }}>Review Answers</h3>
-          {questions.map((q, idx) => {
+          {shuffledQuestions.map((q, idx) => {
             const selected = answers[q.id];
             const isCorrect = selected === q.correctOptionIndex;
             return (
@@ -444,7 +469,7 @@ export function QuizLesson({
               setAnswers({});
               setSubmitted(false);
               setCurrentIndex(0);
-              setTimeLeft(60 * questions.length);
+              setTimeLeft(60 * shuffledQuestions.length);
               setTimerActive(true);
               setSubmitting(false);
               setIsRetry(false);
@@ -467,7 +492,7 @@ export function QuizLesson({
     );
   }
 
-  const currentQuestion = questions[currentIndex];
+  const currentQuestion = shuffledQuestions[currentIndex];
   const answeredCount = Object.keys(answers).length;
 
   return (
@@ -497,16 +522,16 @@ export function QuizLesson({
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#C7C4D8" }}>
           <span>
-            Question {currentIndex + 1} of {questions.length}
+            Question {currentIndex + 1} of {shuffledQuestions.length}
           </span>
           <span>
-            {answeredCount}/{questions.length} answered
+            {answeredCount}/{shuffledQuestions.length} answered
           </span>
         </div>
         <div style={{ height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, marginTop: 4 }}>
           <div
             style={{
-              width: `${(answeredCount / questions.length) * 100}%`,
+              width: `${(answeredCount / shuffledQuestions.length) * 100}%`,
               height: "100%",
               background: "#6C63FF",
               borderRadius: 2,
@@ -567,9 +592,9 @@ export function QuizLesson({
         >
           <ChevronLeft size={16} /> Previous
         </button>
-        {currentIndex < questions.length - 1 ? (
+        {currentIndex < shuffledQuestions.length - 1 ? (
           <button
-            onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}
+            onClick={() => setCurrentIndex((i) => Math.min(shuffledQuestions.length - 1, i + 1))}
             style={{
               background: "rgba(108,99,255,0.2)",
               border: "1px solid rgba(108,99,255,0.3)",
@@ -601,7 +626,7 @@ export function QuizLesson({
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 24, flexWrap: "wrap" }}>
-        {questions.map((_, idx) => (
+        {shuffledQuestions.map((_, idx) => (
           <button
             key={idx}
             onClick={() => setCurrentIndex(idx)}
@@ -609,7 +634,7 @@ export function QuizLesson({
               width: 32,
               height: 32,
               borderRadius: "50%",
-              background: answers[questions[idx].id] !== undefined ? "#6C63FF" : "rgba(255,255,255,0.1)",
+              background: answers[shuffledQuestions[idx].id] !== undefined ? "#6C63FF" : "rgba(255,255,255,0.1)",
               border: currentIndex === idx ? "2px solid #c4c0ff" : "none",
               color: "#E4E1EE",
               fontSize: 12,

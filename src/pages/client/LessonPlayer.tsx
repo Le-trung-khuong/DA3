@@ -1,14 +1,16 @@
-// src/pages/client/LessonPlayer.tsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDocument } from "../../hooks/useFirestore";
 import { useProgress } from "../../hooks/useProgress";
 import { useAuth } from "../../contexts/AuthContext";
-import { ArrowLeft, Loader } from "lucide-react";
+import { useUserEnrollment } from "../../hooks/useUserEnrollment";
+import { ArrowLeft, Loader, Lock } from "lucide-react";
 import { VideoLesson } from "../../components/player/VideoLesson";
 import { QuizLesson } from "../../components/player/QuizLesson";
 import { ReadingLesson } from "../../components/player/ReadingLesson";
 import { FlashcardLesson } from "../../components/player/FlashcardLesson";
+import { useLevelUp } from '../../hooks/useLevelUp';
+import { LevelUpNotification } from '../../components/common/LevelUpNotification';
 
 interface Lesson {
   id: string;
@@ -45,11 +47,13 @@ export default function LessonPlayer() {
     lessonId: string;
   }>();
   const navigate = useNavigate();
-  const { currentUser, loading: authLoading } = useAuth();
+  const { currentUser, userProfile, loading: authLoading } = useAuth(); // ✅ THÊM userProfile
   const userId = currentUser?.uid;
 
   const { data: course, loading: courseLoading, error: courseError } = useDocument<Course>("courses", courseId);
   const { isLessonCompleted, getFlashcardProgress } = useProgress(userId, courseId);
+  const { isEnrolled, loading: enrollmentLoading } = useUserEnrollment(userId, courseId);
+  const { levelUpData, clearLevelUp } = useLevelUp(userProfile?.totalXP);
 
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [moduleTitle, setModuleTitle] = useState("");
@@ -90,7 +94,7 @@ export default function LessonPlayer() {
     navigate(`/learn/${courseId}/${moduleId}/${lessonId}`, { replace: true });
   };
 
-  if (courseLoading || lessonLoading) {
+  if (courseLoading || lessonLoading || enrollmentLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
         <Loader size={36} color="#6C63FF" style={{ animation: "spin 0.8s linear infinite" }} />
@@ -102,6 +106,61 @@ export default function LessonPlayer() {
     return (
       <div style={{ textAlign: "center", padding: 60, color: "#C7C4D8" }}>
         <p>Lesson not found. <Link to={`/courses/${courseId}`}>Back to course</Link></p>
+      </div>
+    );
+  }
+
+  // ✅ FIX-LESSON-1: Chặn truy cập paid lesson nếu chưa enroll
+  // isFree lessons vẫn cho xem; paid lessons yêu cầu enrollment
+  if (!lesson.isFree && !isEnrolled) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "60vh",
+          textAlign: "center",
+          gap: 20,
+        }}
+      >
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: "50%",
+            background: "rgba(108,99,255,0.12)",
+            border: "1px solid rgba(108,99,255,0.3)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Lock size={28} color="#6C63FF" />
+        </div>
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#E4E1EE", marginBottom: 10 }}>
+            Nội dung trả phí
+          </h2>
+          <p style={{ fontSize: 15, color: "#C7C4D8", maxWidth: 360 }}>
+            Bài học này yêu cầu bạn đăng ký khóa học. Vui lòng mua khóa học để tiếp tục.
+          </p>
+        </div>
+        <Link
+          to={`/courses/${courseId}`}
+          style={{
+            padding: "12px 32px",
+            borderRadius: 14,
+            background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+            color: "#fff",
+            fontWeight: 700,
+            fontSize: 15,
+            textDecoration: "none",
+          }}
+        >
+          Xem khóa học
+        </Link>
       </div>
     );
   }
@@ -155,6 +214,21 @@ export default function LessonPlayer() {
             <span style={{ color: "#E4E1EE", fontWeight: 600 }}>{lesson.title}</span>
           </div>
         </div>
+
+        {levelUpData && (
+          <LevelUpNotification
+            oldLevel={levelUpData.oldLevel}
+            newLevel={levelUpData.newLevel}
+            oldTitle={levelUpData.oldTitle}
+            newTitle={levelUpData.newTitle}
+            oldIcon={levelUpData.oldIcon}
+            newIcon={levelUpData.newIcon}
+            oldColor={levelUpData.oldColor}
+            newColor={levelUpData.newColor}
+            onClose={clearLevelUp}
+            autoCloseDelay={5000}
+          />
+        )}
 
         {lesson.type === "video" && (
           <VideoLesson

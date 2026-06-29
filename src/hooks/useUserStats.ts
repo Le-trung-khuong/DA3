@@ -9,13 +9,14 @@ import {
   limit,
   doc,
   getDoc,
-  getDocsFromCache, // không dùng
 } from "firebase/firestore";
 import { db } from "../utils/config";
+import { getLevelFromXP } from "../services/levelService";
+import { useLevel } from "./useLevel";
 
 export interface UserStats {
   totalXP: number;
-  level: number;
+  level: number; // vẫn giữ để các component dùng dần, sẽ được tính từ totalXP
   currentStreak: number;
   enrolledCourses: number;
   completedCourses: number;
@@ -28,6 +29,9 @@ export function useUserStats(userId: string | undefined) {
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Tính levelInfo từ totalXP hiện có
+  const levelInfo = useLevel(stats?.totalXP);
 
   useEffect(() => {
     if (!userId) {
@@ -62,10 +66,9 @@ export function useUserStats(userId: string | undefined) {
         const progressSnap = await getDocs(progressQuery);
         const completedLessons = progressSnap.size;
 
-        // 4. Tính số khóa đã hoàn thành – ✅ dùng batch get + totalLessons từ course
+        // 4. Tính số khóa đã hoàn thành
         let completedCourses = 0;
         if (courseIds.length > 0) {
-          // Batch get courses (tối đa 30 mỗi lần)
           const batchSize = 30;
           const courseTotalLessons: Record<string, number> = {};
           for (let i = 0; i < courseIds.length; i += batchSize) {
@@ -75,14 +78,12 @@ export function useUserStats(userId: string | undefined) {
             courseSnaps.forEach((snap, idx) => {
               if (snap.exists()) {
                 const data = snap.data();
-                // ✅ Dùng trường totalLessons đã được pre-calc khi tạo/sửa course
                 const total = data.totalLessons || 0;
                 courseTotalLessons[batchIds[idx]] = total;
               }
             });
           }
 
-          // Đếm số lesson hoàn thành theo course
           const completedPerCourse: Record<string, number> = {};
           progressSnap.forEach((docSnap) => {
             const p = docSnap.data();
@@ -109,7 +110,7 @@ export function useUserStats(userId: string | undefined) {
         });
         const averageQuizScore = quizCount > 0 ? totalQuizScore / quizCount : 0;
 
-        // 6. XP over time từ xp_logs
+        // 6. XP over time
         const xpLogsQuery = query(
           collection(db, "xp_logs"),
           where("userId", "==", userId),
@@ -131,9 +132,12 @@ export function useUserStats(userId: string | undefined) {
           .map(([date, xp]) => ({ date, xp }))
           .sort((a, b) => a.date.localeCompare(b.date));
 
+        const totalXP = userData.totalXP || 0;
+        const level = getLevelFromXP(totalXP);
+
         setStats({
-          totalXP: userData.totalXP || 0,
-          level: userData.level || 1,
+          totalXP,
+          level, // tính động
           currentStreak: userData.currentStreak || 0,
           enrolledCourses,
           completedCourses,
@@ -152,5 +156,5 @@ export function useUserStats(userId: string | undefined) {
     fetchStats();
   }, [userId]);
 
-  return { stats, loading, error };
+  return { stats, levelInfo, loading, error };
 }
