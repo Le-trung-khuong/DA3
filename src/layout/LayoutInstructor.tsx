@@ -31,6 +31,9 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import type { UserRole } from "../contexts/AuthContext"; // 👈 import type
 
+// ─── Level hook ───────────────────────────────────────────────────────────────
+import { useLevel } from "../hooks/useLevel";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -299,6 +302,7 @@ interface TopBarProps {
 
 function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
   const { userProfile, logout, role } = useAuth();
+  const levelInfo = useLevel(userProfile?.totalXP); // ✅ SỬA LỖI
   const navigate = useNavigate();
 
   const [search, setSearch] = useState("");
@@ -419,7 +423,9 @@ function TopBar({ sidebarWidth, onToggle, collapsed }: TopBarProps) {
             <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 220, background: "rgba(26,26,46,.97)", border: "1px solid rgba(255,255,255,.09)", borderRadius: 16, padding: 8, boxShadow: "0 16px 50px rgba(0,0,0,.5)", animation: "fadeDown .2s ease", zIndex: 80 }}>
               <div style={{ padding: "10px 12px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 6 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: T.text as string }}>{userProfile?.displayName}</div>
-                <div style={{ fontSize: 11, color: "#9B59B6" }}>Level {userProfile?.level} · {(userProfile?.totalXP ?? 0).toLocaleString()} XP</div>
+                <div style={{ fontSize: 11, color: "#9B59B6" }}>
+                  Level {levelInfo.level} · {levelInfo.icon} {(userProfile?.totalXP ?? 0).toLocaleString()} XP
+                </div>
               </div>
               {[
                 { Icon: Home, label: "Main App", action: () => navigate("/"), color: T.muted as string },
@@ -471,11 +477,7 @@ function InstructorRouteGuard({ children, allowedRoles = ["instructor", "admin"]
           <Shield size={26} color="#fff" />
         </div>
         <div style={{ fontSize: 13, color: "#C7C4D8", fontWeight: 600 }}>Verifying access…</div>
-        <div style={{ display: "flex", gap: 5 }}>
-          {[0, 1, 2].map((i) => (
-            <span key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#6C63FF", display: "inline-block", animation: `bounce .9s ${i * .18}s ease infinite` }} />
-          ))}
-        </div>
+        <div style={{ display: "flex", gap: 5 }}>...</div>
       </div>
     );
   }
