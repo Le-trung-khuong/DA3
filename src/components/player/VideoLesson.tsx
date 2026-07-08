@@ -11,6 +11,8 @@ import {
   AFK_COUNTDOWN_SECONDS,
 } from "../../hooks/useVideoTracking";
 import { mergeSegments } from "../../utils/videoTracking";
+import { loadYouTubeAPI } from "../../utils/youtubeLoader";
+import { VideoChapter, TranscriptLine } from "../../types/lesson";
 
 declare global {
   interface Window {
@@ -56,6 +58,8 @@ interface VideoLessonProps {
   onComplete?: () => void;
   isCompleted?: boolean;
   lessonType?: "lesson" | "quiz" | "reading" | "video" | "flashcard";
+  chapters?: VideoChapter[];
+  transcript?: TranscriptLine[];
 }
 
 export function VideoLesson({
@@ -69,6 +73,8 @@ export function VideoLesson({
   onComplete,
   isCompleted = false,
   lessonType = "video",
+  chapters = [],
+  transcript = [],
 }: VideoLessonProps) {
   const [displayTime, setDisplayTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -81,6 +87,8 @@ export function VideoLesson({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
+  const [html5Error, setHtml5Error] = useState<string | null>(null);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const [trackingState, trackingActions] = useVideoTracking(
     userId,
@@ -116,59 +124,7 @@ export function VideoLesson({
   const isYouTube = videoUrl?.includes("youtu.be") || videoUrl?.includes("youtube.com");
   const embedUrl = isYouTube ? getYouTubeEmbedUrl(videoUrl) : null;
 
-  useEffect(() => {
-    setDisplayTime(trackingActions.getTrackingSnapshot().currentTime);
-  }, [trackingActions]);
-
-  // ✅ FIX: loadYouTubeAPI với timeout + onYouTubeIframeAPIReady + onerror
-  const loadYouTubeAPI = useCallback((): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      // Đã có sẵn rồi
-      if (window.YT && window.YT.Player) {
-        resolve();
-        return;
-      }
-
-      // YouTube API gọi window.onYouTubeIframeAPIReady khi xong
-      // Phải đăng ký TRƯỚC khi append script
-      const prevCallback = window.onYouTubeIframeAPIReady;
-      let timeoutId: ReturnType<typeof setTimeout>;
-
-      window.onYouTubeIframeAPIReady = () => {
-        if (prevCallback) prevCallback(); // chain nếu đã có
-        clearTimeout(timeoutId);
-        resolve();
-      };
-
-      // Timeout 10 giây — nếu bị Tracking Prevention block thì không treo mãi
-      timeoutId = setTimeout(() => {
-        reject(new Error("YouTube API load timeout — có thể bị Tracking Prevention chặn"));
-      }, 10_000);
-
-      // Tránh append script trùng
-      const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
-      if (existingScript) {
-        // Script đã có (từ lần trước), chờ callback hoặc check ngay
-        const checkInterval = setInterval(() => {
-          if (window.YT && window.YT.Player) {
-            clearInterval(checkInterval);
-            clearTimeout(timeoutId);
-            resolve();
-          }
-        }, 100);
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.onerror = () => {
-        clearTimeout(timeoutId);
-        reject(new Error("Không thể tải YouTube API script"));
-      };
-      document.body.appendChild(script);
-    });
-  }, []);
-
+  // ===== Load Resume (mở rộng) =====
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
@@ -184,16 +140,39 @@ export function VideoLesson({
         if (data.videoTracking?.progressLocked) {
           alert(`Bạn đã skip quá ${MAX_SKIPS} lần. Hãy xem lại toàn bộ video.`);
         }
+        // new fields
+        if (data.videoBookmarks) setBookmarks(data.videoBookmarks);
+        if (data.videoNotes) setNotes(data.videoNotes);
       }
     };
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompletedState, trackingActions]);
 
+  // ===== Save tracking (mở rộng) =====
   const saveTracking = useCallback(async () => {
     await trackingActions.forceSave();
-  }, [trackingActions]);
+    // Also save bookmarks & notes
+    if (userId && courseId && moduleId && lessonId && !isCompletedState) {
+      await saveResumeData(userId, courseId, moduleId, lessonId, {
+        videoBookmarks: bookmarks,
+        videoNotes: notes,
+      });
+    }
+  }, [trackingActions, userId, courseId, moduleId, lessonId, isCompletedState, bookmarks, notes]);
 
-  // Auto-save on page unload
+  // ===== Auto-save bookmarks & notes (debounced) =====
+  useEffect(() => {
+    if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
+    const timeout = setTimeout(() => {
+      saveResumeData(userId, courseId, moduleId, lessonId, {
+        videoBookmarks: bookmarks,
+        videoNotes: notes,
+      });
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [bookmarks, notes, userId, courseId, moduleId, lessonId, isCompletedState]);
+
+  // ===== Auto-save on unload =====
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
@@ -209,7 +188,7 @@ export function VideoLesson({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [trackingActions, lessonId]);
 
-  // Recovery from localStorage
+  // ===== Recovery from localStorage =====
   useEffect(() => {
     const recoverFromBackup = async () => {
       try {
@@ -232,7 +211,7 @@ export function VideoLesson({
     recoverFromBackup();
   }, [lessonId, trackingActions]);
 
-  // RAF Tracking (cho YouTube) — chỉ track khi playing
+  // ===== RAF Tracking (YouTube) =====
   useEffect(() => {
     if (!isYouTube || isCompletedState) return;
 
@@ -299,7 +278,7 @@ export function VideoLesson({
     };
   }, [isYouTube, isCompletedState, trackingActions, isPlaying]);
 
-  // Video Element Events (non-YouTube)
+  // ===== Video Element Events (non-YouTube) with error handling =====
   useEffect(() => {
     if (isYouTube || !videoRef.current || isCompletedState) return;
     const video = videoRef.current;
@@ -334,11 +313,23 @@ export function VideoLesson({
 
     const onLoadedMetadata = () => {};
 
+    const onError = () => {
+      const err = video.error;
+      let msg = "Có lỗi khi phát video. Vui lòng thử lại.";
+      if (err) {
+        if (err.code === err.MEDIA_ERR_NETWORK) msg = "Lỗi mạng khi tải video.";
+        else if (err.code === err.MEDIA_ERR_DECODE) msg = "Không thể giải mã video này.";
+        else if (err.code === err.MEDIA_ERR_SRC_NOT_SUPPORTED) msg = "Định dạng video không được hỗ trợ.";
+      }
+      setHtml5Error(msg);
+    };
+
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("seeked", onSeeked);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("error", onError);
 
     return () => {
       video.removeEventListener("timeupdate", onTimeUpdate);
@@ -346,10 +337,11 @@ export function VideoLesson({
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("error", onError);
     };
   }, [isYouTube, isCompletedState, trackingActions]);
 
-  // ✅ FIX: YouTube Player init với timeout + origin handling
+  // ===== YouTube Player init =====
   useEffect(() => {
     if (!isYouTube || !embedUrl || isCompletedState) return;
 
@@ -384,7 +376,6 @@ export function VideoLesson({
         containerRef.current.appendChild(container);
       }
 
-      // ✅ Không pass origin trên localhost để tránh postMessage mismatch
       const isLocalhost =
         window.location.hostname === "localhost" ||
         window.location.hostname === "127.0.0.1";
@@ -474,9 +465,9 @@ export function VideoLesson({
       if (container) container.remove();
       playerRef.current = null;
     };
-  }, [isYouTube, embedUrl, lessonId, isCompletedState, videoUrl, loadYouTubeAPI, trackingActions, saveTracking]);
+  }, [isYouTube, embedUrl, lessonId, isCompletedState, videoUrl, trackingActions, saveTracking]);
 
-  // UI Controls
+  // ===== UI Controls =====
   const handlePlayPause = useCallback(() => {
     if (isYouTube && playerRef.current) {
       if (isPlaying) {
@@ -522,12 +513,21 @@ export function VideoLesson({
     }
   }, []);
 
+  const handleSpeedChangeYT = useCallback((rate: number) => {
+    if (playerRef.current?.setPlaybackRate) {
+      playerRef.current.setPlaybackRate(rate);
+      setPlaybackRate(rate);
+    }
+  }, []);
+
   const addBookmark = useCallback(() => {
     const ct = trackingActions.getTrackingSnapshot().currentTime;
     if (ct > 0 && !bookmarks.includes(ct)) {
-      setBookmarks([...bookmarks, ct].sort((a, b) => a - b));
+      const updated = [...bookmarks, ct].sort((a, b) => a - b);
+      setBookmarks(updated);
+      saveResumeData(userId, courseId, moduleId, lessonId, { videoBookmarks: updated });
     }
-  }, [bookmarks, trackingActions]);
+  }, [bookmarks, trackingActions, userId, courseId, moduleId, lessonId]);
 
   const jumpToBookmark = useCallback(
     (time: number) => {
@@ -619,6 +619,109 @@ export function VideoLesson({
     if (videoRef.current?.paused) videoRef.current.play();
     if (playerRef.current?.playVideo) playerRef.current.playVideo();
   }, [trackingActions]);
+
+  // ===== Render Chapters =====
+  const renderChapters = () => {
+    if (!chapters || chapters.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <h4 style={{ fontSize: 13, color: "#C7C4D8", marginBottom: 8 }}>📑 Chapters</h4>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {chapters.map((c, idx) => (
+            <button
+              key={idx}
+              onClick={() => jumpToBookmark(c.time)}
+              style={{
+                textAlign: "left",
+                background: "none",
+                border: "none",
+                color: "#C7C4D8",
+                cursor: "pointer",
+                fontSize: 13,
+                padding: "4px 0",
+                transition: "color .15s",
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.color = "#E4E1EE")}
+              onMouseOut={(e) => (e.currentTarget.style.color = "#C7C4D8")}
+            >
+              {formatTime(c.time)} — {c.title}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ===== Render Transcript =====
+  const renderTranscript = () => {
+    if (!transcript || transcript.length === 0) return null;
+    const activeIndex = transcript.findIndex(line => line.time <= displayTime);
+    const activeLineRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+      if (activeLineRef.current) {
+        activeLineRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }, [activeIndex]);
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <button
+          onClick={() => setShowTranscript(!showTranscript)}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#c4c0ff",
+            cursor: "pointer",
+            fontSize: 13,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <FileText size={14} /> {showTranscript ? "Hide" : "Show"} Transcript
+        </button>
+        {showTranscript && (
+          <div
+            style={{
+              maxHeight: 300,
+              overflowY: "auto",
+              background: "rgba(0,0,0,0.3)",
+              borderRadius: 12,
+              padding: 12,
+              marginTop: 8,
+            }}
+          >
+            {transcript.map((line, idx) => {
+              const isActive = idx === activeIndex;
+              return (
+                <div
+                  key={idx}
+                  ref={isActive ? activeLineRef : undefined}
+                  onClick={() => jumpToBookmark(line.time)}
+                  style={{
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    borderRadius: 6,
+                    background: isActive ? "rgba(108,99,255,0.2)" : "transparent",
+                    color: isActive ? "#E4E1EE" : "#C7C4D8",
+                    transition: "all .15s",
+                  }}
+                  onMouseOver={(e) => {
+                    if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+                  }}
+                  onMouseOut={(e) => {
+                    if (!isActive) e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <span style={{ fontSize: 11, opacity: 0.6, marginRight: 8 }}>{formatTime(line.time)}</span>
+                  {line.text}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // ===== RENDER =====
   if (isYouTube && embedUrl) {
@@ -713,7 +816,127 @@ export function VideoLesson({
             </div>
           )}
           <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+          {/* YouTube controls overlay - speed */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 10,
+              right: 10,
+              zIndex: 10,
+              display: "flex",
+              gap: 6,
+              background: "rgba(0,0,0,0.6)",
+              padding: "4px 8px",
+              borderRadius: 8,
+              backdropFilter: "blur(4px)",
+            }}
+          >
+            <select
+              value={playbackRate}
+              onChange={(e) => handleSpeedChangeYT(Number(e.target.value))}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#fff",
+                fontSize: 12,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}x
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={addBookmark}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#fff",
+                cursor: "pointer",
+                padding: "0 4px",
+              }}
+            >
+              <Bookmark size={14} />
+            </button>
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              style={{
+                background: "none",
+                border: "none",
+                color: showNotes ? "#6C63FF" : "#fff",
+                cursor: "pointer",
+                padding: "0 4px",
+              }}
+            >
+              <FileText size={14} />
+            </button>
+          </div>
         </div>
+
+        {renderChapters()}
+        {renderTranscript()}
+
+        {bookmarks.length > 0 && (
+          <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {bookmarks.map((time, idx) => (
+              <button
+                key={idx}
+                onClick={() => jumpToBookmark(time)}
+                style={{
+                  background: "rgba(108,99,255,0.2)",
+                  border: "none",
+                  borderRadius: 20,
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  color: "#c4c0ff",
+                  cursor: "pointer",
+                }}
+              >
+                📌 {formatTime(time)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {showNotes && (
+          <div
+            style={{
+              background: "rgba(26,26,46,0.8)",
+              borderRadius: 16,
+              padding: 16,
+              marginBottom: 16,
+              border: "1px solid rgba(108,99,255,0.2)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#E4E1EE" }}>📝 My Notes</span>
+              <button
+                onClick={() => setShowNotes(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#C7C4D8" }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Write your notes here..."
+              rows={4}
+              style={{
+                width: "100%",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 12,
+                padding: 12,
+                color: "#E4E1EE",
+                resize: "vertical",
+              }}
+            />
+          </div>
+        )}
 
         <div style={{ marginBottom: 16 }}>
           <div
@@ -831,6 +1054,20 @@ export function VideoLesson({
         </div>
       </div>
 
+      {html5Error && (
+        <div
+          style={{
+            background: "rgba(255,180,171,0.1)",
+            border: "1px solid rgba(255,180,171,0.2)",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ color: "#ffb4ab" }}>⚠️ {html5Error}</p>
+        </div>
+      )}
+
       {showAfkWarning && (
         <div
           style={{
@@ -899,6 +1136,25 @@ export function VideoLesson({
                 borderRadius: 4,
               }}
             />
+            {/* Chapter ticks */}
+            {chapters.map((c, idx) => {
+              const dur = trackingActions.getTrackingSnapshot().duration || 1;
+              const left = (c.time / dur) * 100;
+              if (left > 100 || left < 0) return null;
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    position: "absolute",
+                    left: `${left}%`,
+                    top: 0,
+                    width: 2,
+                    height: "100%",
+                    background: "rgba(255,255,255,0.5)",
+                  }}
+                />
+              );
+            })}
           </div>
           <span style={{ fontSize: 12, color: "#fff" }}>
             {formatTime(displayTime)} / {formatTime(trackingActions.getTrackingSnapshot().duration)}
@@ -939,6 +1195,9 @@ export function VideoLesson({
           </button>
         </div>
       </div>
+
+      {renderChapters()}
+      {renderTranscript()}
 
       {bookmarks.length > 0 && (
         <div style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>

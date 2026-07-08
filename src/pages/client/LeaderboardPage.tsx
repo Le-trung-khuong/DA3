@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useCollection } from "../../hooks/useFirestore";
 import { orderBy, limit } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
-import { Trophy, Zap, Flame, Search, Loader } from "lucide-react";
+import { Trophy, Zap, Flame, Search, Loader, Crown, Sparkles } from "lucide-react";
 import { getLevelInfo } from "../../services/levelService";
 import { LevelBadge } from "../../components/common/LevelBadge";
 import { checkAndUnlockAchievementsLegacy } from "../../services/achievementService";
@@ -73,7 +73,6 @@ export default function LeaderboardPage() {
     return idx !== -1 ? idx + 1 : null;
   }, [filtered, currentUserId]);
 
-  // ✅ Kiểm tra thành tựu leaderboard rank
   useEffect(() => {
     if (!currentUser || currentUserRank === null || hasTriggeredRank.current) return;
     const rank = currentUserRank;
@@ -89,8 +88,18 @@ export default function LeaderboardPage() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
-        <Loader size={36} color="#6C63FF" style={{ animation: "spin 1s linear infinite" }} />
+      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "60vh", gap: 16 }}>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{
+          width: 52, height: 52, borderRadius: 16,
+          background: "linear-gradient(135deg,#6C63FF,#9B59B6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 0 28px rgba(108,99,255,0.4)",
+          animation: "spin 1.5s linear infinite",
+        }}>
+          <Loader size={24} color="#fff" />
+        </div>
+        <span style={{ fontSize: 13, color: "#C7C4D8", fontWeight: 600 }}>Đang tải bảng xếp hạng...</span>
       </div>
     );
   }
@@ -99,15 +108,21 @@ export default function LeaderboardPage() {
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin    { to { transform: rotate(360deg); } }
+        @keyframes fadeUp  { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes glow    { 0%,100%{box-shadow:0 0 20px rgba(255,215,0,0.3)} 50%{box-shadow:0 0 35px rgba(255,215,0,0.6)} }
       `}</style>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#E4E1EE", display: "flex", alignItems: "center", gap: 8 }}>
-            <Trophy size={28} color="#FFD700" /> Leaderboard
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <Sparkles size={14} color="#FFD700" />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#FFB785", textTransform: "uppercase", letterSpacing: ".1em" }}>Hall of Fame</span>
+          </div>
+          <h1 style={{ fontSize: 32, fontWeight: 900, color: "#E4E1EE", display: "flex", alignItems: "center", gap: 10, letterSpacing: "-.02em", margin: "0 0 4px" }}>
+            <Trophy size={30} color="#FFD700" style={{ filter: "drop-shadow(0 0 8px rgba(255,215,0,0.5))" }} /> Leaderboard
           </h1>
-          <p style={{ color: "#C7C4D8", fontSize: 13 }}>Top learners by {sortBy === "xp" ? "Total XP" : "Current Streak"}</p>
+          <p style={{ color: "#C7C4D8", fontSize: 13, margin: 0 }}>Top học viên theo {sortBy === "xp" ? "Tổng XP" : "Streak liên tục"}</p>
         </div>
         <div style={{ display: "flex", gap: 12 }}>
           <button
@@ -158,6 +173,52 @@ export default function LeaderboardPage() {
         />
       </div>
 
+      {/* Podium top 3 */}
+      {filtered.length >= 3 && !search && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 16, marginBottom: 32, padding: "0 8px" }}>
+          {[1, 0, 2].map((podiumIdx) => {
+            const u = filtered[podiumIdx];
+            if (!u) return null;
+            const podiumRank = podiumIdx + 1;
+            const heights = [140, 180, 110];
+            const medals = ["🥈", "🥇", "🥉"];
+            const colors = ["#C0C0C0","#FFD700","#CD7F32"];
+            const glows  = ["rgba(192,192,192,0.3)","rgba(255,215,0,0.4)","rgba(205,127,50,0.3)"];
+            const h = heights[podiumIdx];
+            const isFirst = podiumIdx === 0;
+            const levelI = getLevelInfo(u.totalXP);
+            return (
+              <div key={u.uid} style={{ flex: 1, maxWidth: 220, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, animation: "fadeUp .5s ease" }}>
+                {isFirst && <Crown size={22} color="#FFD700" style={{ filter: "drop-shadow(0 0 8px rgba(255,215,0,0.7))" }} />}
+                <div style={{
+                  width: 60, height: 60, borderRadius: "50%",
+                  background: ROLE_GRAD[u.role] || ROLE_GRAD.student,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20, fontWeight: 800, color: "#fff",
+                  border: `3px solid ${colors[podiumIdx]}`,
+                  boxShadow: `0 0 20px ${glows[podiumIdx]}`,
+                  animation: isFirst ? "glow 2s ease infinite" : "none",
+                }}>{initials(u.displayName)}</div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#E4E1EE" }}>{u.displayName}</div>
+                  <div style={{ fontSize: 11, color: "#C7C4D8" }}>{fmtNum(u.totalXP)} XP</div>
+                </div>
+                <div style={{
+                  width: "100%", height: h,
+                  background: `linear-gradient(to top, ${colors[podiumIdx]}22, ${colors[podiumIdx]}08)`,
+                  border: `1px solid ${colors[podiumIdx]}40`,
+                  borderRadius: "12px 12px 0 0",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                }}>
+                  <span style={{ fontSize: 32 }}>{medals[podiumIdx]}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: colors[podiumIdx] }}>#{podiumRank}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ background: "rgba(26,26,46,0.6)", borderRadius: 24, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden" }}>
         {filtered.map((user, idx) => {
           const rank = idx + 1;
@@ -166,7 +227,7 @@ export default function LeaderboardPage() {
           else if (rank === 2) medalEmoji = "🥈";
           else if (rank === 3) medalEmoji = "🥉";
           const isCurrentUser = user.uid === currentUserId;
-          const levelInfo = getLevelInfo(user.totalXP); // ✅ tính động
+          const levelInfo = getLevelInfo(user.totalXP);
 
           return (
             <div
@@ -215,7 +276,6 @@ export default function LeaderboardPage() {
                   <Flame size={12} color="#ff6b6b" /> {user.currentStreak} days
                 </div>
               </div>
-              {/* ✅ Level Badge thay vì text cũ */}
               <LevelBadge
                 level={levelInfo.level}
                 title={levelInfo.title}

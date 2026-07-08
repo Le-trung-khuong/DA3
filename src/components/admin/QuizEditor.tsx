@@ -1,8 +1,7 @@
 /**
  * src/components/admin/QuizEditor.tsx
- * Editor cho quiz lesson (multiple choice) + import từ Excel/CSV/DOCX
+ * Editor cho quiz lesson (multiple choice, multiple answer, true/false, fill_blank) + import
  */
-
 import React from "react";
 import { Plus, Trash2, ChevronUp, ChevronDown, Upload } from "lucide-react";
 import { useFileImport } from "../../hooks/useFileImport";
@@ -31,7 +30,6 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
       return { questions: result.questions };
     },
     onConfirm: (data) => {
-      // Append imported questions (có thể đổi thành replace nếu muốn)
       onChange([...questions, ...data.questions]);
     },
   });
@@ -40,9 +38,13 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
     const newQuestion: QuizQuestion = {
       id: generateId(),
       text: "",
+      type: "single",
       options: ["", "", "", ""],
       correctOptionIndex: 0,
+      correctOptionIndexes: [],
+      correctTextAnswers: [],
       explanation: "",
+      topic: "",
     };
     onChange([...questions, newQuestion]);
   };
@@ -199,6 +201,7 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
             </button>
           </div>
 
+          {/* Question text */}
           <div style={{ marginBottom: 12 }}>
             <label
               style={{
@@ -228,6 +231,7 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
             />
           </div>
 
+          {/* Type selector */}
           <div style={{ marginBottom: 12 }}>
             <label
               style={{
@@ -238,47 +242,147 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
                 display: "block",
               }}
             >
-              Options (4 choices)
+              Question Type
             </label>
-            {q.options.map((opt, optIdx) => (
-              <div
-                key={optIdx}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <input
-                  type="radio"
-                  name={`correct_${q.id}`}
-                  checked={q.correctOptionIndex === optIdx}
-                  onChange={() =>
-                    updateQuestion(idx, { correctOptionIndex: optIdx })
-                  }
-                  style={{ accentColor: "#45f1c5" }}
-                />
-                <input
-                  type="text"
-                  value={opt}
-                  onChange={(e) => updateOption(idx, optIdx, e.target.value)}
-                  placeholder={`Option ${optIdx + 1}`}
-                  style={{
-                    flex: 1,
-                    background: "#0d0d18",
-                    border: "1px solid rgba(255,255,255,.08)",
-                    borderRadius: 8,
-                    padding: "8px 12px",
-                    color: "#E4E1EE",
-                    fontSize: 13,
-                  }}
-                />
-              </div>
-            ))}
+            <select
+              value={q.type || "single"}
+              onChange={(e) =>
+                updateQuestion(idx, { type: e.target.value as "single" | "multiple" | "true_false" | "fill_blank" })
+              }
+              style={{
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 8,
+                padding: "6px 10px",
+                color: "#E4E1EE",
+                fontSize: 13,
+              }}
+            >
+              <option value="single">Single</option>
+              <option value="multiple">Multiple</option>
+              <option value="true_false">True/False</option>
+              <option value="fill_blank">Fill in blank</option>
+            </select>
           </div>
 
-          <div>
+          {/* Options */}
+          {q.type === "fill_blank" ? (
+            <div style={{ marginBottom: 12 }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#C7C4D8",
+                  marginBottom: 4,
+                  display: "block",
+                }}
+              >
+                Correct Answers (comma separated, case insensitive)
+              </label>
+              <input
+                type="text"
+                value={(q.correctTextAnswers || []).join(", ")}
+                onChange={(e) =>
+                  updateQuestion(idx, {
+                    correctTextAnswers: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                  })
+                }
+                placeholder="e.g. React, React.js, ReactJS"
+                style={{
+                  width: "100%",
+                  background: "#0d0d18",
+                  border: "1px solid rgba(255,255,255,.08)",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  color: "#E4E1EE",
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#C7C4D8",
+                  marginBottom: 4,
+                  display: "block",
+                }}
+              >
+                Options {q.type === "true_false" ? "(fixed)" : "(4 choices)"}
+              </label>
+              {q.options.map((opt, optIdx) => {
+                const isChecked =
+                  q.type === "multiple"
+                    ? (q.correctOptionIndexes || []).includes(optIdx)
+                    : q.correctOptionIndex === optIdx;
+                return (
+                  <div
+                    key={optIdx}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {q.type === "true_false" ? (
+                      <input
+                        type="radio"
+                        name={`correct_${q.id}`}
+                        checked={isChecked}
+                        onChange={() => updateQuestion(idx, { correctOptionIndex: optIdx })}
+                        disabled={q.type === "true_false"}
+                        style={{ accentColor: "#45f1c5" }}
+                      />
+                    ) : q.type === "multiple" ? (
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const current = q.correctOptionIndexes || [];
+                          const updated = e.target.checked
+                            ? [...current, optIdx]
+                            : current.filter((i) => i !== optIdx);
+                          updateQuestion(idx, { correctOptionIndexes: updated });
+                        }}
+                        style={{ accentColor: "#45f1c5" }}
+                      />
+                    ) : (
+                      <input
+                        type="radio"
+                        name={`correct_${q.id}`}
+                        checked={isChecked}
+                        onChange={() => updateQuestion(idx, { correctOptionIndex: optIdx })}
+                        style={{ accentColor: "#45f1c5" }}
+                      />
+                    )}
+                    <input
+                      type="text"
+                      value={opt}
+                      onChange={(e) => updateOption(idx, optIdx, e.target.value)}
+                      placeholder={`Option ${optIdx + 1}`}
+                      disabled={q.type === "true_false"}
+                      style={{
+                        flex: 1,
+                        background: "#0d0d18",
+                        border: "1px solid rgba(255,255,255,.08)",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        color: "#E4E1EE",
+                        fontSize: 13,
+                        opacity: q.type === "true_false" ? 0.6 : 1,
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Explanation */}
+          <div style={{ marginBottom: 8 }}>
             <label
               style={{
                 fontSize: 11,
@@ -304,6 +408,36 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
                 color: "#E4E1EE",
                 fontSize: 13,
                 resize: "vertical",
+              }}
+            />
+          </div>
+
+          {/* Topic */}
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#C7C4D8",
+                marginBottom: 4,
+                display: "block",
+              }}
+            >
+              Topic (for weakness detection)
+            </label>
+            <input
+              type="text"
+              value={q.topic || ""}
+              onChange={(e) => updateQuestion(idx, { topic: e.target.value })}
+              placeholder="e.g. React Hooks, JavaScript, CSS"
+              style={{
+                width: "100%",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#E4E1EE",
+                fontSize: 13,
               }}
             />
           </div>
@@ -338,7 +472,7 @@ export function QuizEditor({ questions, onChange }: QuizEditorProps) {
                       borderBottom: "1px solid rgba(255,255,255,0.05)",
                     }}
                   >
-                    <strong>{q.text}</strong> (Correct: {q.options[q.correctOptionIndex]})
+                    <strong>{q.text}</strong> (Correct: {q.type === "fill_blank" ? q.correctTextAnswers?.join(", ") : q.options[q.correctOptionIndex]})
                   </div>
                 ))}
               </div>

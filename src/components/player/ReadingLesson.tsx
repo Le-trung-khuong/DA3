@@ -5,7 +5,23 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { saveResumeData, getResumeData } from "../../services/progressService";
-import { Menu, BookOpen, Clock, Lightbulb, AlertTriangle, Info, Bookmark, Target, AlertCircle, X } from "lucide-react";
+import {
+  Menu,
+  BookOpen,
+  Clock,
+  Lightbulb,
+  AlertTriangle,
+  Info,
+  Bookmark,
+  Target,
+  AlertCircle,
+  X,
+  Highlighter,
+  StickyNote,
+  Volume2,
+  VolumeX,
+  Sparkles,
+} from "lucide-react";
 import { countWords, calculateMinReadingTime, detectScrollCheat } from "../../utils/readingUtils";
 import { KnowledgeCheck } from "./KnowledgeCheck";
 
@@ -41,7 +57,7 @@ interface ReadingLessonProps {
   lessonType?: "lesson" | "quiz" | "reading" | "video" | "flashcard";
 }
 
-// ----- Helper functions -----
+// ----- Helper functions (giữ nguyên) -----
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -145,6 +161,15 @@ export function ReadingLesson({
   const [suspectedFastScroll, setSuspectedFastScroll] = useState(false);
   const [focusTimeSeconds, setFocusTimeSeconds] = useState(0);
 
+  // --- NEW STATES ---
+  const [readingNotes, setReadingNotes] = useState<Record<string, string>>({});
+  const [activeNoteHeadingId, setActiveNoteHeadingId] = useState<string | null>(null);
+  const [readingHighlights, setReadingHighlights] = useState<string[]>([]);
+  const [readingBookmarks, setReadingBookmarks] = useState<string[]>([]);
+  const [focusMode, setFocusMode] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [vocabPopup, setVocabPopup] = useState<{ word: string; x: number; y: number } | null>(null);
+
   const [toast, setToast] = useState<{ message: string; type: "warning" | "info" | "error"; id: number } | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -155,7 +180,7 @@ export function ReadingLesson({
   const isActiveRef = useRef(true);
   const sectionObservedRef = useRef<Set<string>>(new Set());
   const scrollSpikeCountRef = useRef(0);
-  const suspectedFastScrollRef = useRef(false); // ✅ C4: dùng ref để tránh re-register listener
+  const suspectedFastScrollRef = useRef(false);
 
   const enhancedContent = useMemo(() => enhanceContentForCards(content), [content]);
   const minReadingTimeRequired = useMemo(
@@ -163,6 +188,7 @@ export function ReadingLesson({
     [wordCount]
   );
 
+  // --- Effects (giữ nguyên) ---
   useEffect(() => {
     const wc = countWords(content);
     setWordCount(wc);
@@ -181,6 +207,7 @@ export function ReadingLesson({
     setTimeout(() => setToast(null), 4000);
   }, []);
 
+  // --- Load Resume (mở rộng) ---
   useEffect(() => {
     const loadResume = async () => {
       if (!userId || !courseId || !moduleId || !lessonId || isCompletedState) return;
@@ -233,11 +260,16 @@ export function ReadingLesson({
           setKnowledgeCheckPassed(true);
           setShowCompleteButton(true);
         }
+        // NEW: load notes, highlights, bookmarks
+        if (data.readingNotes) setReadingNotes(data.readingNotes);
+        if (data.readingHighlights) setReadingHighlights(data.readingHighlights);
+        if (data.readingBookmarks) setReadingBookmarks(data.readingBookmarks);
       }
     };
     loadResume();
   }, [userId, courseId, moduleId, lessonId, isCompletedState, showToast]);
 
+  // --- Debounced save (mở rộng) ---
   const saveReadingTracking = useCallback(async () => {
     if (isCompletedState) return;
     const scrollTop = window.scrollY;
@@ -260,6 +292,9 @@ export function ReadingLesson({
         focusTimeSeconds,
         lastActivityAt: Date.now(),
       },
+      readingNotes,
+      readingHighlights,
+      readingBookmarks,
     });
   }, [
     userId,
@@ -276,6 +311,9 @@ export function ReadingLesson({
     sectionInteraction,
     totalSections,
     focusTimeSeconds,
+    readingNotes,
+    readingHighlights,
+    readingBookmarks,
   ]);
 
   const isDirtyRef = useRef(false);
@@ -292,24 +330,26 @@ export function ReadingLesson({
     return () => clearInterval(interval);
   }, [saveReadingTracking]);
 
-  // ✅ C4: Loại bỏ suspectedFastScroll khỏi dependency của handleScroll
+  // --- handleScroll with cheat detection ---
   const handleScroll = useCallback(() => {
     if (!contentRef.current || isCompletedState) return;
-
     const element = contentRef.current;
-    const scrollTop = window.scrollY;
-    const offsetTop = element.offsetTop;
-    const height = element.clientHeight;
-    const viewportHeight = window.innerHeight;
-    const totalScrollable = height + offsetTop - viewportHeight;
-    const scrolled = scrollTop - offsetTop;
-    const percent = totalScrollable > 0 ? Math.min(100, Math.max(0, (scrolled / totalScrollable) * 100)) : 0;
+    const rect = element.getBoundingClientRect();
+    const totalHeight = rect.height;
+    const visibleHeight = window.innerHeight;
+    const scrolled = window.scrollY - rect.top;
+    const percent = totalHeight > visibleHeight
+      ? Math.min(100, Math.max(0, (scrolled / (totalHeight - visibleHeight)) * 100))
+      : 100;
+    setActualReadProgress(percent);
 
+    // ✅ Anti-cheat
     const now = Date.now();
-    const timeDelta = (now - lastScrollTimeRef.current) / 1000;
-    if (timeDelta > 0 && lastScrollTopRef.current > 0) {
-      const isCheating = detectScrollCheat(scrollTop, lastScrollTopRef.current, timeDelta);
-      if (isCheating) {
+    const currentTop = window.scrollY;
+    const timeDelta = now - lastScrollTimeRef.current;
+    if (timeDelta > 0) {
+      const isCheat = detectScrollCheat(currentTop, lastScrollTopRef.current, timeDelta);
+      if (isCheat) {
         scrollSpikeCountRef.current += 1;
         setScrollSpikeCount(scrollSpikeCountRef.current);
         if (scrollSpikeCountRef.current > MAX_SCROLL_SPIKES && !suspectedFastScrollRef.current) {
@@ -319,13 +359,11 @@ export function ReadingLesson({
         }
       }
     }
-
-    lastScrollTopRef.current = scrollTop;
+    lastScrollTopRef.current = currentTop;
     lastScrollTimeRef.current = now;
 
-    setActualReadProgress(percent);
     markDirty();
-  }, [isCompletedState, showToast, markDirty]);
+  }, [isCompletedState, markDirty, showToast]);
 
   useEffect(() => {
     window.addEventListener("scroll", handleScroll);
@@ -333,6 +371,7 @@ export function ReadingLesson({
     return () => window.removeEventListener("scroll", handleScroll);
   }, [handleScroll]);
 
+  // --- Time tracking ---
   useEffect(() => {
     if (isCompletedState) return;
 
@@ -358,6 +397,7 @@ export function ReadingLesson({
     };
   }, [isCompletedState, markDirty]);
 
+  // --- Section observer ---
   useEffect(() => {
     if (headings.length === 0) return;
     const observer = new IntersectionObserver(
@@ -385,6 +425,7 @@ export function ReadingLesson({
     return () => observer.disconnect();
   }, [headings, totalSections, markDirty]);
 
+  // --- Engagement score ---
   const computeEngagementScore = useCallback(() => {
     const coverage = actualReadProgress;
     const timeRatio = Math.min(readingTimeSpent / minReadingTimeRequired, 1);
@@ -399,6 +440,7 @@ export function ReadingLesson({
     markDirty();
   }, [computeEngagementScore, markDirty]);
 
+  // --- Knowledge check trigger ---
   const shouldShowKnowledgeCheck = useMemo(() => {
     const coverageOk = actualReadProgress >= 80;
     const timeOk = readingTimeSpent >= minReadingTimeRequired;
@@ -425,6 +467,7 @@ export function ReadingLesson({
     setIsKnowledgeCheckOpen(true);
   };
 
+  // --- Complete button conditions ---
   const canComplete = knowledgeCheckPassed && actualReadProgress >= 80 && !isCompletedState;
 
   const requirementMessage = useMemo(() => {
@@ -444,6 +487,7 @@ export function ReadingLesson({
     return "";
   }, [actualReadProgress, readingTimeSpent, minReadingTimeRequired, engagementScore, knowledgeCheckPassed, isCompletedState]);
 
+  // --- Knowledge check questions ---
   const knowledgeCheckQuestions: KnowledgeCheckQuestion[] = useMemo(() => {
     const generated: KnowledgeCheckQuestion[] = [];
     const selectedHeadings = headings.slice(0, 3);
@@ -508,6 +552,49 @@ export function ReadingLesson({
     return generated.slice(0, 3);
   }, [headings]);
 
+  // --- NEW: TTS ---
+  const speak = useCallback(() => {
+    const plainText = enhancedContent.replace(/[#*`>[\]()!:]/g, " ").replace(/\s+/g, " ");
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    utterance.lang = "vi-VN";
+    utterance.onend = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
+  }, [enhancedContent]);
+
+  const stopSpeaking = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
+
+  // --- NEW: Vocabulary popup via double-click ---
+  useEffect(() => {
+    const handleDoubleClick = (e: MouseEvent) => {
+      const selection = window.getSelection()?.toString().trim();
+      if (selection && selection.split(/\s+/).length === 1) {
+        setVocabPopup({ word: selection, x: e.clientX, y: e.clientY });
+      }
+    };
+    document.addEventListener("dblclick", handleDoubleClick);
+    return () => document.removeEventListener("dblclick", handleDoubleClick);
+  }, []);
+
+  // --- NEW: toggle bookmark ---
+  const toggleBookmark = (headingId: string) => {
+    setReadingBookmarks((prev) =>
+      prev.includes(headingId) ? prev.filter((id) => id !== headingId) : [...prev, headingId]
+    );
+    markDirty();
+  };
+
+  // --- NEW: toggle highlight for heading ---
+  const toggleHighlight = (headingId: string) => {
+    setReadingHighlights((prev) =>
+      prev.includes(headingId) ? prev.filter((id) => id !== headingId) : [...prev, headingId]
+    );
+    markDirty();
+  };
+
   // ---- Render ----
   const markdownComponents = {
     h1: ({ children }: any) => {
@@ -531,41 +618,229 @@ export function ReadingLesson({
     h2: ({ children }: any) => {
       const text = children?.toString() || "";
       const id = slugify(text);
+      const isBookmarked = readingBookmarks.includes(id);
+      const isHighlighted = readingHighlights.includes(id);
+      const note = readingNotes[id] || "";
       return (
-        <h2
-          id={id}
-          style={{
-            fontSize: "1.8rem",
-            fontWeight: 700,
-            marginTop: "2rem",
-            marginBottom: "1rem",
-            color: "#E4E1EE",
-            borderLeft: "4px solid #6C63FF",
-            paddingLeft: "0.75rem",
-          }}
-        >
-          {children}
-        </h2>
+        <div style={{ position: "relative" }}>
+          <h2
+            id={id}
+            style={{
+              fontSize: "1.8rem",
+              fontWeight: 700,
+              marginTop: "2rem",
+              marginBottom: "1rem",
+              color: "#E4E1EE",
+              borderLeft: "4px solid #6C63FF",
+              paddingLeft: "0.75rem",
+            }}
+          >
+            {children}
+            <span style={{ marginLeft: 8, display: "inline-flex", gap: 6, verticalAlign: "middle" }}>
+              <button
+                onClick={() => toggleBookmark(id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: isBookmarked ? "#FFB785" : "#47464f",
+                }}
+              >
+                <Bookmark size={14} fill={isBookmarked ? "#FFB785" : "none"} />
+              </button>
+              <button
+                onClick={() => setActiveNoteHeadingId(id === activeNoteHeadingId ? null : id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: note ? "#6C63FF" : "#47464f",
+                }}
+              >
+                <StickyNote size={14} />
+              </button>
+              <button
+                onClick={() => toggleHighlight(id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: isHighlighted ? "#FFD700" : "#47464f",
+                }}
+              >
+                <Highlighter size={14} />
+              </button>
+            </span>
+          </h2>
+          {isHighlighted && (
+            <div
+              style={{
+                background: "rgba(255,215,0,0.12)",
+                padding: "4px 12px",
+                borderRadius: 4,
+                marginBottom: 8,
+                fontSize: 12,
+                color: "#FFD700",
+              }}
+            >
+              ✨ Highlighted section
+            </div>
+          )}
+          {activeNoteHeadingId === id && (
+            <div
+              style={{
+                marginTop: 8,
+                marginBottom: 16,
+                background: "rgba(108,99,255,0.08)",
+                borderRadius: 8,
+                padding: 12,
+                border: "1px solid rgba(108,99,255,0.2)",
+              }}
+            >
+              <textarea
+                value={note}
+                onChange={(e) => {
+                  setReadingNotes((prev) => ({ ...prev, [id]: e.target.value }));
+                  markDirty();
+                }}
+                placeholder="Write your note..."
+                rows={2}
+                style={{
+                  width: "100%",
+                  background: "#0d0d18",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8,
+                  padding: 8,
+                  color: "#E4E1EE",
+                  fontSize: 13,
+                  resize: "vertical",
+                }}
+              />
+              <button
+                onClick={() => setActiveNoteHeadingId(null)}
+                style={{ marginTop: 6, background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 12 }}
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </div>
       );
     },
     h3: ({ children }: any) => {
       const text = children?.toString() || "";
       const id = slugify(text);
+      const isBookmarked = readingBookmarks.includes(id);
+      const isHighlighted = readingHighlights.includes(id);
+      const note = readingNotes[id] || "";
       return (
-        <h3
-          id={id}
-          style={{
-            fontSize: "1.4rem",
-            fontWeight: 600,
-            marginTop: "1.5rem",
-            marginBottom: "0.75rem",
-            color: "#c4c0ff",
-          }}
-        >
-          {children}
-        </h3>
+        <div style={{ position: "relative" }}>
+          <h3
+            id={id}
+            style={{
+              fontSize: "1.4rem",
+              fontWeight: 600,
+              marginTop: "1.5rem",
+              marginBottom: "0.75rem",
+              color: "#c4c0ff",
+            }}
+          >
+            {children}
+            <span style={{ marginLeft: 8, display: "inline-flex", gap: 6, verticalAlign: "middle" }}>
+              <button
+                onClick={() => toggleBookmark(id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: isBookmarked ? "#FFB785" : "#47464f",
+                }}
+              >
+                <Bookmark size={14} fill={isBookmarked ? "#FFB785" : "none"} />
+              </button>
+              <button
+                onClick={() => setActiveNoteHeadingId(id === activeNoteHeadingId ? null : id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: note ? "#6C63FF" : "#47464f",
+                }}
+              >
+                <StickyNote size={14} />
+              </button>
+              <button
+                onClick={() => toggleHighlight(id)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: isHighlighted ? "#FFD700" : "#47464f",
+                }}
+              >
+                <Highlighter size={14} />
+              </button>
+            </span>
+          </h3>
+          {isHighlighted && (
+            <div
+              style={{
+                background: "rgba(255,215,0,0.12)",
+                padding: "4px 12px",
+                borderRadius: 4,
+                marginBottom: 8,
+                fontSize: 12,
+                color: "#FFD700",
+              }}
+            >
+              ✨ Highlighted section
+            </div>
+          )}
+          {activeNoteHeadingId === id && (
+            <div
+              style={{
+                marginTop: 8,
+                marginBottom: 16,
+                background: "rgba(108,99,255,0.08)",
+                borderRadius: 8,
+                padding: 12,
+                border: "1px solid rgba(108,99,255,0.2)",
+              }}
+            >
+              <textarea
+                value={note}
+                onChange={(e) => {
+                  setReadingNotes((prev) => ({ ...prev, [id]: e.target.value }));
+                  markDirty();
+                }}
+                placeholder="Write your note..."
+                rows={2}
+                style={{
+                  width: "100%",
+                  background: "#0d0d18",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8,
+                  padding: 8,
+                  color: "#E4E1EE",
+                  fontSize: 13,
+                  resize: "vertical",
+                }}
+              />
+              <button
+                onClick={() => setActiveNoteHeadingId(null)}
+                style={{ marginTop: 6, background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 12 }}
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </div>
       );
     },
+    // ... các components khác giữ nguyên (h4, h5, h6, p, ul, ol, li, blockquote, code, table, th, td)
+    // Để tiết kiệm, tôi giữ nguyên phần còn lại từ file gốc. Bạn đã có sẵn.
+    // Nếu cần, hãy copy phần này từ file cũ.
+    // Dưới đây là phần placeholder cho các components khác (bạn có thể giữ nguyên từ bản cũ)
     h4: ({ children }: any) => {
       const text = children?.toString() || "";
       const id = slugify(text);
@@ -727,25 +1002,59 @@ export function ReadingLesson({
     td: ({ children }: any) => <td style={{ border: "1px solid rgba(255,255,255,0.1)", padding: "0.75rem" }}>{children}</td>,
   };
 
-  const renderToc = () => (
-    <nav
-      style={{
-        position: "sticky",
-        top: "80px",
-        background: "rgba(15,15,26,0.9)",
-        borderRadius: "16px",
-        padding: "1rem",
-        border: "1px solid rgba(255,255,255,0.08)",
-        maxHeight: "80vh",
-        overflowY: "auto",
-      }}
-    >
-      <h4 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#C7C4D8", marginBottom: "1rem", letterSpacing: "0.05em" }}>
-        📑 CONTENTS
-      </h4>
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-        {headings.map((heading, idx) => (
-          <li key={idx} style={{ marginBottom: "0.5rem" }}>
+  // --- TOC render with bookmarks ---
+  const renderToc = () => {
+    const bookmarkedHeadings = headings.filter((h) => readingBookmarks.includes(h.id));
+    const otherHeadings = headings.filter((h) => !readingBookmarks.includes(h.id));
+    return (
+      <nav
+        style={{
+          position: "sticky",
+          top: "80px",
+          background: "rgba(15,15,26,0.9)",
+          borderRadius: "16px",
+          padding: "1rem",
+          border: "1px solid rgba(255,255,255,0.08)",
+          maxHeight: "80vh",
+          overflowY: "auto",
+        }}
+      >
+        <h4 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#C7C4D8", marginBottom: "1rem", letterSpacing: "0.05em" }}>
+          📑 CONTENTS
+        </h4>
+        {/* Bookmarks first */}
+        {bookmarkedHeadings.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: "#FFB785", fontWeight: 700, letterSpacing: ".05em", marginBottom: 6 }}>
+              📌 BOOKMARKS
+            </div>
+            {bookmarkedHeadings.map((h) => (
+              <div key={h.id} style={{ marginBottom: "0.5rem" }}>
+                <a
+                  href={`#${h.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    document.getElementById(h.id)?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  style={{
+                    display: "block",
+                    fontSize: "0.85rem",
+                    color: activeHeadingId === h.id ? "#6C63FF" : "#FFB785",
+                    textDecoration: "none",
+                    paddingLeft: `${(h.level - 1) * 14}px`,
+                    transition: "color 0.2s",
+                    fontWeight: activeHeadingId === h.id ? 600 : 400,
+                  }}
+                >
+                  {h.text}
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Other headings */}
+        {otherHeadings.map((heading) => (
+          <div key={heading.id} style={{ marginBottom: "0.5rem" }}>
             <a
               href={`#${heading.id}`}
               onClick={(e) => {
@@ -764,12 +1073,13 @@ export function ReadingLesson({
             >
               {heading.text}
             </a>
-          </li>
+          </div>
         ))}
-      </ul>
-    </nav>
-  );
+      </nav>
+    );
+  };
 
+  // ---- Main JSX ----
   return (
     <div style={{ maxWidth: "100%", margin: "0 auto", position: "relative" }}>
       {toast && (
@@ -794,11 +1104,36 @@ export function ReadingLesson({
           }}
         >
           <span>{toast.message}</span>
-          <button
-            onClick={() => setToast(null)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "inherit" }}
-          >
+          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit" }}>
             <X size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Vocabulary Popup */}
+      {vocabPopup && (
+        <div
+          style={{
+            position: "fixed",
+            left: vocabPopup.x + 12,
+            top: vocabPopup.y - 10,
+            background: "#1A1A2E",
+            border: "1px solid rgba(108,99,255,0.3)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            zIndex: 999,
+            maxWidth: 250,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          }}
+          onMouseLeave={() => setVocabPopup(null)}
+        >
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#E4E1EE" }}>{vocabPopup.word}</div>
+          <div style={{ fontSize: 13, color: "#C7C4D8", marginTop: 4 }}>💡 Tra từ điển (AI) — sắp có</div>
+          <button
+            onClick={() => setVocabPopup(null)}
+            style={{ marginTop: 8, background: "none", border: "none", color: "#C7C4D8", cursor: "pointer", fontSize: 12 }}
+          >
+            Đóng
           </button>
         </div>
       )}
@@ -861,6 +1196,62 @@ export function ReadingLesson({
             {!knowledgeCheckPassed && actualReadProgress >= 80 && engagementScore >= ENGAGEMENT_THRESHOLD && (
               <span style={{ color: "#FFB785", fontSize: "0.7rem" }}>📝 Chờ kiểm tra</span>
             )}
+            {/* TTS Button */}
+            {!isSpeaking ? (
+              <button
+                onClick={speak}
+                style={{
+                  background: "rgba(108,99,255,0.15)",
+                  border: "none",
+                  borderRadius: 20,
+                  padding: "2px 10px",
+                  fontSize: "0.7rem",
+                  color: "#c4c0ff",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <Volume2 size={12} /> Đọc to
+              </button>
+            ) : (
+              <button
+                onClick={stopSpeaking}
+                style={{
+                  background: "rgba(255,180,171,0.15)",
+                  border: "none",
+                  borderRadius: 20,
+                  padding: "2px 10px",
+                  fontSize: "0.7rem",
+                  color: "#ffb4ab",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <VolumeX size={12} /> Dừng
+              </button>
+            )}
+            {/* Focus mode toggle */}
+            <button
+              onClick={() => setFocusMode((f) => !f)}
+              style={{
+                background: focusMode ? "rgba(69,241,197,0.15)" : "rgba(255,255,255,0.05)",
+                border: "none",
+                borderRadius: 20,
+                padding: "2px 10px",
+                fontSize: "0.7rem",
+                color: focusMode ? "#45f1c5" : "#C7C4D8",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              {focusMode ? "🎯 Thoát Focus" : "🎯 Focus Mode"}
+            </button>
           </div>
           <button
             onClick={() => setShowToc(!showToc)}
@@ -901,26 +1292,49 @@ export function ReadingLesson({
       </div>
 
       <div style={{ display: "flex", gap: "2rem", maxWidth: "1200px", margin: "0 auto", padding: "0 1rem" }}>
-        <aside style={{ width: "250px", display: showToc ? "block" : "none", flexShrink: 0 }}>{renderToc()}</aside>
-
-        <main ref={contentRef} style={{ flex: 1, maxWidth: "780px", margin: "0 auto" }}>
-          <h1 style={{ fontSize: "2.8rem", fontWeight: 800, marginBottom: "1rem", color: "#E4E1EE" }}>{title}</h1>
-
-          <div
+        {!focusMode && (
+          <aside
+            className="reading-toc-sidebar"
             style={{
-              display: "flex",
-              gap: 16,
-              fontSize: 13,
-              color: "#C7C4D8",
-              marginBottom: 24,
-              padding: "12px 16px",
-              background: "rgba(255,255,255,0.03)",
-              borderRadius: 12,
+              width: "250px",
+              display: showToc ? "block" : "none",
+              flexShrink: 0,
             }}
           >
-            <span>📝 {wordCount} từ</span>
-            <span>⏱️ {Math.ceil(wordCount / 200)} phút đọc</span>
-          </div>
+            {renderToc()}
+          </aside>
+        )}
+
+        <main
+          ref={contentRef}
+          style={{
+            flex: 1,
+            maxWidth: focusMode ? "680px" : "780px",
+            margin: "0 auto",
+          }}
+        >
+          {!focusMode && (
+            <h1 style={{ fontSize: "2.8rem", fontWeight: 800, marginBottom: "1rem", color: "#E4E1EE" }}>{title}</h1>
+          )}
+
+          {!focusMode && (
+            <div
+              style={{
+                display: "flex",
+                gap: 16,
+                fontSize: 13,
+                color: "#C7C4D8",
+                marginBottom: 24,
+                padding: "12px 16px",
+                background: "rgba(255,255,255,0.03)",
+                borderRadius: 12,
+              }}
+            >
+              <span>📝 {wordCount} từ</span>
+              <span>⏱️ {Math.ceil(wordCount / 200)} phút đọc</span>
+              <span>📌 {readingBookmarks.length} bookmark</span>
+            </div>
+          )}
 
           <div style={{ fontSize: "1.1rem", lineHeight: 1.8, color: "#E4E1EE" }}>
             <ReactMarkdown rehypePlugins={[rehypeRaw, rehypeSanitize]} components={markdownComponents}>
@@ -966,6 +1380,21 @@ export function ReadingLesson({
           </div>
         </main>
       </div>
+
+      {/* Responsive TOC overlay (mobile) */}
+      <style>{`
+        @media (max-width: 768px) {
+          .reading-toc-sidebar {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100% !important;
+            z-index: 999;
+            background: #0F0F1A;
+            padding: 20px;
+            overflow-y: auto;
+          }
+        }
+      `}</style>
     </div>
   );
 }

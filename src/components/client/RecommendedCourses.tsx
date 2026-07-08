@@ -7,7 +7,7 @@ import { getRecommendedCourses, RecommendedCourse } from '../../services/recomme
 import { Star, Users, ArrowRight, TrendingUp, Sparkles, BookOpen, ChevronRight } from 'lucide-react';
 
 interface RecommendedCoursesProps {
-  courseId?: string; // Nếu có, hiển thị gợi ý bài học tiếp theo cho khóa học đó
+  courseId?: string;
 }
 
 const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => {
@@ -18,10 +18,8 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
   const [courses, setCourses] = useState<RecommendedCourse[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
 
-  // Gợi ý bài học tiếp theo (nếu có courseId)
   const { lessonId, moduleId, reason, loading: recommendLoading } = useAIRecommendation(userId, courseId);
 
-  // Lấy danh sách khóa học gợi ý (top rated)
   useEffect(() => {
     getRecommendedCourses(5)
       .then(setCourses)
@@ -35,16 +33,15 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
     }
   };
 
-  // ============ Render gợi ý bài học tiếp theo ============
   const renderLessonRecommendation = () => {
     if (!courseId) return null;
 
     if (recommendLoading) {
       return (
-        <div style={{ 
-          background: 'rgba(108,99,255,0.05)', 
-          borderRadius: 12, 
-          padding: 16, 
+        <div style={{
+          background: 'rgba(108,99,255,0.05)',
+          borderRadius: 12,
+          padding: 16,
           marginBottom: 16,
           border: '1px solid rgba(108,99,255,0.1)'
         }}>
@@ -55,10 +52,10 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
 
     if (!lessonId || !moduleId) {
       return (
-        <div style={{ 
-          background: 'rgba(69,241,197,0.05)', 
-          borderRadius: 12, 
-          padding: 16, 
+        <div style={{
+          background: 'rgba(69,241,197,0.05)',
+          borderRadius: 12,
+          padding: 16,
           marginBottom: 16,
           border: '1px solid rgba(69,241,197,0.15)'
         }}>
@@ -90,14 +87,14 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ 
-              width: 36, 
-              height: 36, 
-              borderRadius: '50%', 
-              background: 'rgba(108,99,255,0.2)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center' 
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: 'rgba(108,99,255,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
               <Sparkles size={18} color="#6C63FF" />
             </div>
@@ -106,12 +103,12 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#6C63FF' }}>
                   {reason === 'Bài học mới' ? '📖 Bài học mới' : '🔄 Ôn tập'}
                 </span>
-                <span style={{ 
-                  fontSize: 10, 
-                  color: '#C7C4D8', 
-                  background: 'rgba(255,255,255,0.05)', 
-                  padding: '2px 8px', 
-                  borderRadius: 12 
+                <span style={{
+                  fontSize: 10,
+                  color: '#C7C4D8',
+                  background: 'rgba(255,255,255,0.05)',
+                  padding: '2px 8px',
+                  borderRadius: 12
                 }}>
                   Tiếp theo
                 </span>
@@ -125,12 +122,14 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
     );
   };
 
-  // ============ Render danh sách khóa học gợi ý ============
   const renderCourseRecommendations = () => {
     if (loadingCourses) {
       return (
-        <div style={{ textAlign: 'center', padding: '20px 0', color: '#C7C4D8' }}>
-          <p>Đang tải...</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[0,1,2].map(i => (
+            <div key={i} style={{ height: 72, borderRadius: 12, background: 'linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.03) 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+          ))}
+          <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
         </div>
       );
     }
@@ -150,9 +149,9 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
             key={c.courseId}
             style={{
               padding: '14px 16px',
-              borderRadius: 12,
-              background: idx === 0 ? 'rgba(108,99,255,0.08)' : 'rgba(255,255,255,0.03)',
-              border: idx === 0 ? '1px solid rgba(108,99,255,0.3)' : '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 14,
+              background: idx === 0 ? 'rgba(108,99,255,0.10)' : 'rgba(255,255,255,0.03)',
+              border: idx === 0 ? '1px solid rgba(108,99,255,0.28)' : '1px solid rgba(255,255,255,0.06)',
               transition: 'all 0.2s',
               cursor: 'pointer',
             }}
@@ -162,7 +161,7 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
               e.currentTarget.style.boxShadow = '0 4px 12px rgba(108,99,255,0.15)';
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.borderColor = idx === 0 ? 'rgba(108,99,255,0.3)' : 'rgba(255,255,255,0.06)';
+              e.currentTarget.style.borderColor = idx === 0 ? 'rgba(108,99,255,0.28)' : 'rgba(255,255,255,0.06)';
               e.currentTarget.style.boxShadow = 'none';
             }}
           >
@@ -228,16 +227,14 @@ const RecommendedCourses: React.FC<RecommendedCoursesProps> = ({ courseId }) => 
   };
 
   return (
-    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
-      {/* ✅ Gợi ý bài học tiếp theo (nếu có courseId) */}
+    <div style={{ background: 'rgba(26,26,46,0.7)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.07)', padding: 24, backdropFilter: 'blur(12px)', boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}>
       {renderLessonRecommendation()}
 
-      {/* Danh sách khóa học gợi ý */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <TrendingUp size={22} color="#6C63FF" /> Khóa học gợi ý
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+          <TrendingUp size={20} color="#6C63FF" /> Khóa học gợi ý
         </h2>
-        <span style={{ fontSize: 13, color: '#6C63FF' }}>Top đánh giá</span>
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.06em', color: '#45f1c5', background: 'rgba(69,241,197,0.1)', padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(69,241,197,0.2)' }}>✦ AI PICKS</span>
       </div>
 
       {renderCourseRecommendations()}

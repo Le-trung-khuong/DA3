@@ -1,8 +1,7 @@
 /**
  * src/components/admin/FlashcardEditor.tsx
- * Editor cho flashcard lesson + import từ Excel/CSV/DOCX
+ * Editor cho flashcard lesson + import + category + image
  */
-
 import React from "react";
 import { Plus, Trash2, ChevronUp, ChevronDown, Upload } from "lucide-react";
 import { useFileImport } from "../../hooks/useFileImport";
@@ -31,7 +30,6 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
       return { cards: result.cards };
     },
     onConfirm: (data) => {
-      // Append imported cards
       onChange([...cards, ...data.cards]);
     },
   });
@@ -42,6 +40,9 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
       front: "",
       back: "",
       hint: "",
+      category: "",
+      frontImageUrl: "",
+      backImageUrl: "",
     };
     onChange([...cards, newCard]);
   };
@@ -193,15 +194,7 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <label
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#C7C4D8",
-                marginBottom: 4,
-                display: "block",
-              }}
-            >
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
               Front (Question / Term)
             </label>
             <textarea
@@ -223,15 +216,7 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
           </div>
 
           <div style={{ marginBottom: 12 }}>
-            <label
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#C7C4D8",
-                marginBottom: 4,
-                display: "block",
-              }}
-            >
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
               Back (Answer / Definition)
             </label>
             <textarea
@@ -252,16 +237,8 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
             />
           </div>
 
-          <div>
-            <label
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#C7C4D8",
-                marginBottom: 4,
-                display: "block",
-              }}
-            >
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
               Hint (optional)
             </label>
             <input
@@ -279,6 +256,75 @@ export function FlashcardEditor({ cards, onChange }: FlashcardEditorProps) {
                 fontSize: 13,
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
+              Category (optional)
+            </label>
+            <input
+              type="text"
+              value={card.category || ""}
+              onChange={(e) => updateCard(idx, { category: e.target.value })}
+              placeholder="e.g. React, JavaScript, CSS"
+              style={{
+                width: "100%",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#E4E1EE",
+                fontSize: 13,
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
+              Front Image URL (optional)
+            </label>
+            <input
+              type="text"
+              value={card.frontImageUrl || ""}
+              onChange={(e) => updateCard(idx, { frontImageUrl: e.target.value })}
+              placeholder="https://example.com/front.png"
+              style={{
+                width: "100%",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#E4E1EE",
+                fontSize: 13,
+              }}
+            />
+            {card.frontImageUrl && (
+              <img src={card.frontImageUrl} alt="front" style={{ maxWidth: 80, maxHeight: 80, marginTop: 4, borderRadius: 8 }} />
+            )}
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#C7C4D8", marginBottom: 4, display: "block" }}>
+              Back Image URL (optional)
+            </label>
+            <input
+              type="text"
+              value={card.backImageUrl || ""}
+              onChange={(e) => updateCard(idx, { backImageUrl: e.target.value })}
+              placeholder="https://example.com/back.png"
+              style={{
+                width: "100%",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                color: "#E4E1EE",
+                fontSize: 13,
+              }}
+            />
+            {card.backImageUrl && (
+              <img src={card.backImageUrl} alt="back" style={{ maxWidth: 80, maxHeight: 80, marginTop: 4, borderRadius: 8 }} />
+            )}
           </div>
         </div>
       ))}

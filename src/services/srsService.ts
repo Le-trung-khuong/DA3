@@ -28,39 +28,38 @@ export async function initializeSRSCard(cardId: string, userId: string): Promise
 }
 
 export function calculateReviewResult(card: SRSCard, quality: number): SRSReviewResult {
-  let newEaseFactor = card.easeFactor;
-  let newInterval = card.interval;
-  let newStage = card.stage;
+  let ease = card.easeFactor;
+  let interval = card.interval;
+  let stage = card.stage;
 
   if (quality < 3) {
-    newStage = 0;
-    newInterval = 0;
-    newEaseFactor = 2.5;
+    stage = 0;
+    interval = 0;
+    ease = 2.5;
   } else {
-    if (card.stage === 0) {
-      newStage = 1;
-      newInterval = 1;
-    } else if (card.stage === 1) {
-      newStage = 2;
-      newInterval = 1;
+    ease = Math.max(1.3, ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+    if (stage === 0) {
+      stage = 1;
+      interval = 1;
+    } else if (stage === 1) {
+      stage = 2;
+      interval = 6;
     } else {
-      const ease = card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
-      newEaseFactor = Math.max(1.3, ease);
-      newInterval = Math.round(card.interval * newEaseFactor);
-      newStage = (card.stage + 1 > 3) ? 3 : (card.stage + 1) as 0 | 1 | 2 | 3;
+      interval = Math.round(interval * ease);
+      if (interval > 365) interval = 365;
     }
   }
 
   const nextReviewDate = new Date();
-  nextReviewDate.setDate(nextReviewDate.getDate() + newInterval);
+  nextReviewDate.setDate(nextReviewDate.getDate() + interval);
 
   return {
     cardId: card.cardId,
     quality,
-    newEaseFactor,
-    newInterval,
+    newEaseFactor: ease,
+    newInterval: interval,
     nextReviewDate,
-    newStage, // ✅ ĐÃ CÓ newStage
+    newStage: stage as 0 | 1 | 2 | 3,
   };
 }
 
@@ -76,7 +75,7 @@ export async function updateSRSCard(
     easeFactor: result.newEaseFactor,
     interval: result.newInterval,
     nextReviewDate: Timestamp.fromDate(result.nextReviewDate),
-    stage: result.newStage, // ✅ Sử dụng result.newStage
+    stage: result.newStage,
     timesReviewed: currentCard.timesReviewed + 1,
     lastQuality: result.quality,
   });

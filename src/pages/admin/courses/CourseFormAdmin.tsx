@@ -4,11 +4,9 @@
  *
  * File: src/pages/admin/courses/CourseFormAdmin.tsx
  *
- * Usage:
- *   /admin/courses/new       → tạo mới
- *   /admin/courses/:courseId/edit → chỉnh sửa
- *
- * Dependencies: firebase, lucide-react, react-markdown (cho preview)
+ * ✅ Hỗ trợ Drip Content (releaseAt)
+ * ✅ Hỗ trợ Prerequisites (chọn bài học tiên quyết)
+ * ✅ Đã loại bỏ "assignment"
  */
 
 "use client";
@@ -125,25 +123,29 @@ const EditorLoader = () => (
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
-type CourseLevel   = "beginner" | "intermediate" | "advanced" | "all_levels";
-type CourseStatus  = "published" | "draft" | "archived";
-type LessonType    = "video" | "quiz" | "reading" | "flashcard";
+type CourseLevel = "beginner" | "intermediate" | "advanced" | "all_levels";
+type CourseStatus = "published" | "draft" | "archived";
+type LessonType = "video" | "quiz" | "reading" | "flashcard"; // ✅ đã loại bỏ "assignment"
 
 interface Lesson {
   id: string;
   title: string;
   type: LessonType;
-  duration: number;   // minutes
+  duration: number; // minutes
   videoUrl?: string;
   xpReward: number;
   isFree: boolean;
-  content?: any;      // nội dung chi tiết cho quiz, reading, flashcard
+  content?: any; // nội dung chi tiết cho quiz, reading, flashcard
+  // 🆕 Drip content
+  releaseAt?: Date | string;
+  // 🆕 Prerequisites
+  prerequisites?: string[];
 }
 
 interface Module {
   id: string;
   title: string;
-  duration: number;   // total minutes (auto-computed)
+  duration: number; // total minutes (auto-computed)
   order: number;
   lessons: Lesson[];
   expanded: boolean;
@@ -185,10 +187,10 @@ const CATEGORIES = [
 const LANGUAGES = ["English", "Vietnamese", "Japanese", "Korean", "French", "Spanish"];
 
 const LESSON_TYPE_META: Record<LessonType, { label: string; color: string; bg: string; Icon: React.ElementType }> = {
-  video:      { label: "Video",      color: "#6C63FF", bg: "rgba(108,99,255,0.14)", Icon: Play },
-  quiz:       { label: "Quiz",       color: "#45f1c5", bg: "rgba(69,241,197,0.12)", Icon: Zap },
-  reading:    { label: "Reading",    color: "#FFB785", bg: "rgba(255,183,133,0.12)", Icon: BookOpen },
-  flashcard:  { label: "Flashcard",  color: "#c4c0ff", bg: "rgba(196,192,255,0.12)", Icon: Layers },
+  video: { label: "Video", color: "#6C63FF", bg: "rgba(108,99,255,0.14)", Icon: Play },
+  quiz: { label: "Quiz", color: "#45f1c5", bg: "rgba(69,241,197,0.12)", Icon: Zap },
+  reading: { label: "Reading", color: "#FFB785", bg: "rgba(255,183,133,0.12)", Icon: BookOpen },
+  flashcard: { label: "Flashcard", color: "#c4c0ff", bg: "rgba(196,192,255,0.12)", Icon: Layers },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,6 +212,8 @@ const emptyLesson = (): Lesson => ({
   xpReward: 50,
   isFree: false,
   content: undefined,
+  releaseAt: undefined,
+  prerequisites: [],
 });
 
 const emptyModule = (order: number): Module => ({
@@ -243,14 +247,14 @@ const defaultForm = (): CourseFormData => ({
 
 function validate(form: CourseFormData): ValidationErrors {
   const errors: ValidationErrors = {};
-  if (!form.title.trim())               errors.title    = "Course title is required";
-  if (form.title.trim().length > 120)   errors.title    = "Title must be under 120 characters";
-  if (form.price < 0)                   errors.price    = "Price cannot be negative";
-  if (!form.category)                   errors.category = "Please select a category";
-  if (!form.description.trim())         errors.description = "Please add a short description";
-  if (form.modules.length === 0)        errors.modules  = "Add at least one module";
+  if (!form.title.trim()) errors.title = "Course title is required";
+  if (form.title.trim().length > 120) errors.title = "Title must be under 120 characters";
+  if (form.price < 0) errors.price = "Price cannot be negative";
+  if (!form.category) errors.category = "Please select a category";
+  if (!form.description.trim()) errors.description = "Please add a short description";
+  if (form.modules.length === 0) errors.modules = "Add at least one module";
   const emptyModules = form.modules.filter((m) => !m.title.trim());
-  if (emptyModules.length > 0)          errors.modules  = "All modules must have a title";
+  if (emptyModules.length > 0) errors.modules = "All modules must have a title";
   return errors;
 }
 
@@ -518,9 +522,10 @@ interface LessonEditorProps {
   onUpdate: (patch: Partial<Lesson>) => void;
   onDelete: () => void;
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  allLessons: Lesson[]; // 🆕 Danh sách tất cả lesson (để chọn prerequisites)
 }
 
-function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: LessonEditorProps) {
+function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps, allLessons }: LessonEditorProps) {
   const [expanded, setExpanded] = useState(false);
   const meta = LESSON_TYPE_META[lesson.type];
   const MetaIcon = meta.Icon;
@@ -658,6 +663,48 @@ function LessonEditor({ lesson, index, onUpdate, onDelete, dragHandleProps }: Le
             )}
           </div>
 
+          {/* 🆕 Drip Content - Release Date */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={{ ...LABEL }}>Release Date (optional)</label>
+              <input
+                type="datetime-local"
+                value={lesson.releaseAt ? new Date(lesson.releaseAt).toISOString().slice(0, 16) : ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  onUpdate({ releaseAt: val ? new Date(val) : undefined });
+                }}
+                style={{ ...IS, padding: "7px 10px", fontSize: 12 }}
+                onFocus={focusBorder} onBlur={blurBorder}
+              />
+              <p style={{ fontSize: 11, color: "#C7C4D8", marginTop: 4 }}>
+                Leave empty to publish immediately.
+              </p>
+            </div>
+
+            {/* 🆕 Prerequisites */}
+            <div>
+              <label style={{ ...LABEL }}>Prerequisites (optional)</label>
+              <select
+                multiple
+                value={lesson.prerequisites || []}
+                onChange={(e) => {
+                  const selected = Array.from(e.target.selectedOptions, opt => opt.value);
+                  onUpdate({ prerequisites: selected });
+                }}
+                style={{ ...IS, padding: "7px 10px", fontSize: 12, minHeight: 80 }}
+                onFocus={focusBorder} onBlur={blurBorder}
+              >
+                {allLessons.map((l) => (
+                  <option key={l.id} value={l.id}>{l.title || `Lesson ${allLessons.indexOf(l) + 1}`}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11, color: "#C7C4D8", marginTop: 4 }}>
+                Hold Ctrl (Cmd) to select multiple. Students must complete these lessons first.
+              </p>
+            </div>
+          </div>
+
           {/* Content editors - Lazy loaded with Suspense */}
           {lesson.type === "quiz" && (
             <Suspense fallback={<EditorLoader />}>
@@ -703,6 +750,9 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
   const dragModIdx = useRef<number | null>(null);
   const dragOverModIdx = useRef<number | null>(null);
 
+  // 🆕 Lấy danh sách tất cả lesson để truyền vào LessonEditor
+  const allLessons = modules.flatMap(m => m.lessons);
+
   const updateModule = useCallback((idx: number, patch: Partial<Module>) => {
     onChange(modules.map((m, i) => (i === idx ? { ...m, ...patch } : m)));
   }, [modules, onChange]);
@@ -722,9 +772,9 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
 
   const handleModDragStart = (idx: number) => { dragModIdx.current = idx; };
   const handleModDragEnter = (idx: number) => { dragOverModIdx.current = idx; };
-  const handleModDragEnd   = () => {
+  const handleModDragEnd = () => {
     const from = dragModIdx.current;
-    const to   = dragOverModIdx.current;
+    const to = dragOverModIdx.current;
     if (from === null || to === null || from === to) return;
     const arr = [...modules];
     const [moved] = arr.splice(from, 1);
@@ -754,11 +804,11 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
   };
 
   const dragLessonFrom = useRef<{ mod: number; lesson: number } | null>(null);
-  const dragLessonTo   = useRef<{ mod: number; lesson: number } | null>(null);
+  const dragLessonTo = useRef<{ mod: number; lesson: number } | null>(null);
 
   const endLessonDrag = () => {
     const from = dragLessonFrom.current;
-    const to   = dragLessonTo.current;
+    const to = dragLessonTo.current;
     if (!from || !to || (from.mod === to.mod && from.lesson === to.lesson)) return;
     if (from.mod === to.mod) {
       const mod = { ...modules[from.mod] };
@@ -768,7 +818,7 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
       updateModule(from.mod, { lessons: arr });
     }
     dragLessonFrom.current = null;
-    dragLessonTo.current   = null;
+    dragLessonTo.current = null;
   };
 
   return (
@@ -796,7 +846,7 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
             transition: "box-shadow .2s",
           }}
           onMouseOver={(e) => (e.currentTarget.style.boxShadow = "0 4px 20px rgba(108,99,255,.1)")}
-          onMouseOut={(e)  => (e.currentTarget.style.boxShadow = "none")}
+          onMouseOut={(e) => (e.currentTarget.style.boxShadow = "none")}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "rgba(255,255,255,.025)", borderBottom: "1px solid rgba(255,255,255,.07)", cursor: "grab" }}>
             <GripVertical size={17} color="#47464f" />
@@ -864,6 +914,7 @@ function DynamicModuleList({ modules, onChange, error }: DynamicModuleListProps)
                     index={lIdx}
                     onUpdate={(patch) => updateLesson(mIdx, lIdx, patch)}
                     onDelete={() => deleteLesson(mIdx, lIdx)}
+                    allLessons={allLessons.filter(l => l.id !== lesson.id)} // 🆕 loại bỏ chính nó
                   />
                 </div>
               ))}

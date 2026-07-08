@@ -83,7 +83,7 @@ const LearningProgress: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+      <div style={{ background: 'rgba(26,26,46,0.7)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.07)', padding: 24, backdropFilter: 'blur(12px)', boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', margin: 0, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
           <BookOpen size={22} color="#6C63FF" /> Tiến độ học tập
         </h2>
@@ -102,7 +102,7 @@ const LearningProgress: React.FC = () => {
     : 0;
 
   return (
-    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+    <div style={{ background: 'rgba(26,26,46,0.7)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.07)', padding: 24, backdropFilter: 'blur(12px)', boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <BookOpen size={22} color="#6C63FF" /> Tiến độ học tập
@@ -119,8 +119,8 @@ const LearningProgress: React.FC = () => {
 
       {progress.length > 0 && (
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ width: `${totalPercent}%`, height: '100%', background: '#6C63FF', borderRadius: 4, transition: 'width 0.5s' }} />
+          <div style={{ flex: 1, height: 10, background: 'rgba(255,255,255,0.06)', borderRadius: 5, overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)' }}>
+            <div style={{ width: `${totalPercent}%`, height: '100%', background: 'linear-gradient(90deg,#6C63FF,#9B59B6)', borderRadius: 5, transition: 'width 0.6s cubic-bezier(.4,0,.2,1)', boxShadow: '0 0 10px rgba(108,99,255,0.4)' }} />
           </div>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#6C63FF', whiteSpace: 'nowrap' }}>
             {totalPercent}%
@@ -144,9 +144,12 @@ const LearningProgress: React.FC = () => {
                 style={{
                   width: `${p.percent}%`,
                   height: '100%',
-                  background: p.percent === 100 ? '#45f1c5' : '#6C63FF',
+                  background: p.percent === 100
+                    ? 'linear-gradient(90deg,#45f1c5,#00D4AA)'
+                    : 'linear-gradient(90deg,#6C63FF,#9B59B6)',
                   borderRadius: 3,
-                  transition: 'width 0.5s ease',
+                  transition: 'width 0.6s cubic-bezier(.4,0,.2,1)',
+                  boxShadow: p.percent === 100 ? '0 0 8px rgba(69,241,197,0.4)' : '0 0 6px rgba(108,99,255,0.3)',
                 }}
               />
             </div>
@@ -155,16 +158,16 @@ const LearningProgress: React.FC = () => {
       </div>
 
       {progress.length > 0 && (
-        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 24 }}>
-          <div>
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 0 }}>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: '#C7C4D8' }}>Khóa học đang học</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#E4E1EE' }}>{progress.length}</div>
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: '#C7C4D8' }}>Hoàn thành trung bình</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#E4E1EE' }}>{totalPercent}%</div>
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: '#C7C4D8' }}>Đã hoàn thành</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#45f1c5' }}>
               {progress.filter(p => p.percent === 100).length}

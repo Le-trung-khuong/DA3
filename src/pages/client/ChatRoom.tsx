@@ -1,8 +1,12 @@
 /**
  * src/pages/client/ChatRoom.tsx
- * Chi tiết phòng chat – tích hợp useChat, useTyping, read receipts, infinite scroll
- * ✅ Thêm permission check cho course community
- * ✅ UI Polish: avatar, typing dots, header badge, polished input, access-denied screen
+ * Chi tiết phòng chat
+ * ✅ Fix: access control realtime dùng useUserEnrollment
+ * ✅ Fix: chỉ gọi useChat sau khi access resolved
+ * ✅ Fix: handleDeleteMessage bỏ isAdmin
+ * ✅ Fix: handlePin bỏ canPin, sử dụng try-catch
+ * ✅ Fix: whitelist file type
+ * ✅ Fix: batch mark read
  */
 
 "use client";
@@ -11,12 +15,12 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useDocument } from "../../hooks/useFirestore";
 import { useAuth } from "../../contexts/AuthContext";
+import { useUserEnrollment } from "../../hooks/useUserEnrollment";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../utils/config";
 import { useChat } from "../../hooks/useChat";
 import { useTyping } from "../../hooks/useTyping";
 import { useOwnPresence } from "../../hooks/usePresence";
-import { canAccessCommunity } from "../../services/chatService";
 import { joinRoom, leaveRoom } from "../../services/chatService";
 import {
   ArrowLeft,
@@ -61,8 +65,6 @@ const timeAgo = (value: any) => {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 };
-
-// ─── Avatar helpers ───────────────────────────────────────────────────────
 
 const stringToColor = (str: string): string => {
   let hash = 0;
@@ -127,11 +129,7 @@ const getUserAvatar = (
   );
 };
 
-// ─── Type extension ───────────────────────────────────────────────────────
-
-interface ChatRoomInfo extends ChatRoom {}
-
-// ─── Component ───────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ChatRoom() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -148,6 +146,7 @@ export default function ChatRoom() {
   const [isBanned, setIsBanned] = useState(false);
   const [warningCount, setWarningCount] = useState(0);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [accessResolved, setAccessResolved] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -166,35 +165,60 @@ export default function ChatRoom() {
   useOwnPresence(currentUser?.uid);
 
   const { data: room, loading: roomLoading, error: roomError } =
-    useDocument<ChatRoomInfo>("chat_rooms", roomId);
+    useDocument<ChatRoom>("chat_rooms", roomId);
 
+  // ✅ Fix: dùng useUserEnrollment realtime
+  const { isEnrolled, loading: enrollmentLoading } = useUserEnrollment(
+    currentUser?.uid,
+    room?.courseId
+  );
+
+  // Ban check
+  useEffect(() => {
+    if (!currentUser) return;
+    const userRef = doc(db, "users", currentUser.uid);
+    const unsubscribe = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setIsBanned(data.status === "banned" || data.banned === true);
+        setWarningCount(data.warningCount || 0);
+      }
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // ✅ Fix: kiểm tra quyền realtime
   useEffect(() => {
     if (!roomId || !currentUser || !room) return;
+    setAccessResolved(false);
     const checkAccess = async () => {
       if (room.isPrivate && room.type === "course") {
-        const allowed = await canAccessCommunity(
-          roomId,
-          currentUser.uid,
-          userProfile?.role
-        );
+        if (enrollmentLoading) return;
+        const isInstructor = room.instructorId === currentUser.uid;
+        const isAdmin = userProfile?.role === "admin";
+        const allowed = isInstructor || isAdmin || isEnrolled;
+        setAccessDenied(!allowed);
         if (!allowed) {
-          setAccessDenied(true);
           if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
           redirectTimerRef.current = setTimeout(() => {
             navigate("/chat", {
               state: { error: "You don't have permission to access this community." },
             });
           }, 2000);
-        } else {
-          setAccessDenied(false);
         }
+      } else {
+        setAccessDenied(false);
       }
+      setAccessResolved(true);
     };
     checkAccess();
     return () => {
       if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
     };
-  }, [room, currentUser, userProfile, roomId, navigate]);
+  }, [room, currentUser, userProfile, roomId, navigate, isEnrolled, enrollmentLoading]);
+
+  // ✅ Fix: chỉ gọi useChat khi access resolved
+  const safeRoomId = accessResolved && !accessDenied ? roomId : undefined;
 
   const {
     messages,
@@ -213,15 +237,17 @@ export default function ChatRoom() {
     pin,
     unpin,
     markRead,
+    markManyRead,
     markRoomRead,
-  } = useChat(roomId, currentUser?.uid);
+  } = useChat(safeRoomId, currentUser?.uid);
 
   const { typingUsers, sendTyping } = useTyping(
-    roomId,
+    safeRoomId,
     currentUser?.uid,
     userProfile?.displayName || currentUser?.email?.split("@")[0] || "Anonymous"
   );
 
+  // Join/Leave
   useEffect(() => {
     if (!roomId || !currentUser || accessDenied) return;
     const init = async () => {
@@ -238,19 +264,7 @@ export default function ChatRoom() {
     };
   }, [roomId, currentUser, accessDenied]);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const userRef = doc(db, "users", currentUser.uid);
-    const unsubscribe = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setIsBanned(data.status === "banned" || data.banned === true);
-        setWarningCount(data.warningCount || 0);
-      }
-    });
-    return () => unsubscribe();
-  }, [currentUser]);
-
+  // Infinite scroll
   useEffect(() => {
     if (!loadMoreTriggerRef.current) return;
     const observer = new IntersectionObserver(
@@ -265,23 +279,27 @@ export default function ChatRoom() {
     return () => observer.disconnect();
   }, [loadMore, loadingMore, hasMore]);
 
+  // Scroll to bottom
   useEffect(() => {
     if (messages.length > 0 && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
+  // ✅ Fix: batch mark read
   useEffect(() => {
-    if (!currentUser || !isMountedRef.current) return;
-    const unread = messages.filter(
-      (msg) =>
-        msg.userId !== currentUser.uid &&
-        (!msg.readBy || !msg.readBy.includes(currentUser.uid))
-    );
-    unread.forEach((msg) => {
-      markRead(msg.id).catch(console.error);
-    });
-  }, [messages, currentUser, markRead]);
+    if (!currentUser || !roomId || accessDenied) return;
+    const unreadIds = messages
+      .filter(
+        (msg) =>
+          msg.userId !== currentUser.uid &&
+          (!msg.readBy || !msg.readBy.includes(currentUser.uid))
+      )
+      .map((msg) => msg.id);
+    if (unreadIds.length > 0) {
+      markManyRead(unreadIds).catch(console.error);
+    }
+  }, [messages, currentUser, roomId, markManyRead, accessDenied]);
 
   useEffect(() => {
     return () => {
@@ -291,7 +309,7 @@ export default function ChatRoom() {
     };
   }, [roomId, currentUser, markRoomRead]);
 
-  // ── Handlers ──
+  // ── Handlers ────────────────────────────────────────────────────────────
 
   const handleSend = async () => {
     if (!newMessage.trim() || !currentUser || sending) return;
@@ -337,6 +355,14 @@ export default function ChatRoom() {
     }
   };
 
+  // ✅ Fix: whitelist MIME types
+  const ALLOWED_TYPES = [
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     if (isBanned) {
@@ -346,6 +372,10 @@ export default function ChatRoom() {
     const file = e.target.files[0];
     if (file.size > 10 * 1024 * 1024) {
       alert("File too large (max 10MB).");
+      return;
+    }
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert("File type not allowed.");
       return;
     }
     setUploadingFile(true);
@@ -377,15 +407,13 @@ export default function ChatRoom() {
     }
   };
 
+  // ✅ Fix: bỏ tham số isAdmin
   const handleDeleteMessage = async (msg: ChatMessage) => {
     if (!currentUser) return;
     const confirmMsg = window.confirm("Delete this message permanently?");
     if (!confirmMsg) return;
     try {
-      await remove(
-        msg.id,
-        userProfile?.role === "admin" || userProfile?.role === "moderator"
-      );
+      await remove(msg.id);
     } catch (err: any) {
       alert(err.message || "Cannot delete message.");
     }
@@ -408,12 +436,17 @@ export default function ChatRoom() {
     }
   };
 
+  // ✅ Fix: pin/unpin không cần canPin, bọc try-catch
   const handlePin = async (msg: ChatMessage) => {
     if (!currentUser) return;
-    if (msg.isPinned) {
-      await unpin(msg.id);
-    } else {
-      await pin(msg.id);
+    try {
+      if (msg.isPinned) {
+        await unpin(msg.id);
+      } else {
+        await pin(msg.id);
+      }
+    } catch (err: any) {
+      alert(err.message || "Cannot pin/unpin message.");
     }
   };
 
@@ -423,12 +456,11 @@ export default function ChatRoom() {
     if (textarea) textarea.focus();
   };
 
-  // ── Message renderer ──
+  // ── Message renderer ──────────────────────────────────────────────────
 
   const renderMessage = (msg: ChatMessage) => {
     const isOwn = msg.userId === currentUser?.uid;
-    const isAdmin =
-      userProfile?.role === "admin" || userProfile?.role === "moderator";
+    const isAdmin = userProfile?.role === "admin" || userProfile?.role === "moderator";
     const canPin = isAdmin;
     const isPinned = msg.isPinned || false;
 
@@ -443,14 +475,8 @@ export default function ChatRoom() {
           marginBottom: isPinned ? 20 : 10,
         }}
       >
-        {/* Avatar */}
-        {getUserAvatar(
-          msg.userId,
-          msg.userName,
-          (msg as any).userAvatar
-        )}
+        {getUserAvatar(msg.userId, msg.userName, (msg as any).userAvatar)}
 
-        {/* Bubble */}
         <div
           style={{
             maxWidth: "68%",
@@ -472,7 +498,6 @@ export default function ChatRoom() {
             }),
           }}
         >
-          {/* Meta row */}
           <div
             style={{
               display: "flex",
@@ -510,7 +535,6 @@ export default function ChatRoom() {
                 <Pin size={10} style={{ display: "inline" }} /> Pinned
               </span>
             )}
-            {/* Action buttons */}
             <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
               {!isOwn && (
                 <button
@@ -588,7 +612,6 @@ export default function ChatRoom() {
             </div>
           </div>
 
-          {/* Reply context */}
           {msg.replyTo && msg.replyToText && (
             <div
               style={{
@@ -608,7 +631,6 @@ export default function ChatRoom() {
             </div>
           )}
 
-          {/* Content */}
           {msg.fileUrl ? (
             <div style={{ marginTop: 8 }}>
               {msg.isImage ? (
@@ -654,7 +676,6 @@ export default function ChatRoom() {
             </p>
           )}
 
-          {/* Reactions */}
           {msg.reactions && Object.keys(msg.reactions).length > 0 && (
             <div
               style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap" }}
@@ -683,7 +704,6 @@ export default function ChatRoom() {
             </div>
           )}
 
-          {/* Read receipts */}
           {isOwn && msg.readBy && (
             <div
               style={{
@@ -711,7 +731,7 @@ export default function ChatRoom() {
 
   // ── Early returns ──
 
-  if (roomLoading) {
+  if (roomLoading || enrollmentLoading) {
     return (
       <div
         style={{
@@ -761,7 +781,6 @@ export default function ChatRoom() {
           padding: "24px",
         }}
       >
-        {/* Illustration */}
         <div
           style={{
             width: 80,
@@ -839,9 +858,10 @@ export default function ChatRoom() {
     );
   }
 
+  // ── Main render ──
+
   const isPremium = room.type === "course" && room.isPrivate;
 
-  // ── Main render ──
   return (
     <div
       style={{
@@ -853,15 +873,17 @@ export default function ChatRoom() {
         flexDirection: "column",
       }}
     >
-      {/* Keyframes */}
       <style>{`
         @keyframes typingDot {
           0%, 60%, 100% { opacity: 0.2; transform: translateY(0); }
           30% { opacity: 1; transform: translateY(-3px); }
         }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
       `}</style>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div
         style={{
           marginBottom: 16,
@@ -893,7 +915,6 @@ export default function ChatRoom() {
           <ArrowLeft size={16} /> Back
         </Link>
 
-        {/* Room icon */}
         <div
           style={{
             width: 40,
@@ -918,7 +939,6 @@ export default function ChatRoom() {
           )}
         </div>
 
-        {/* Name + description */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <h1
@@ -994,7 +1014,6 @@ export default function ChatRoom() {
           </p>
         </div>
 
-        {/* Stats */}
         <div
           style={{
             display: "flex",
@@ -1090,7 +1109,6 @@ export default function ChatRoom() {
           messages.map(renderMessage)
         )}
 
-        {/* Typing indicator */}
         {typingUsers.length > 0 && (
           <div
             style={{
@@ -1241,7 +1259,7 @@ export default function ChatRoom() {
               ref={fileInputRef}
               onChange={handleFileSelect}
               style={{ display: "none" }}
-              accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*"
+              accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             />
             <button
               onClick={() => fileInputRef.current?.click()}

@@ -25,6 +25,7 @@ import {
   Clock,
   Crown,
   MessageSquare,
+  Edit3,
 } from "lucide-react";
 import {
   AreaChart,
@@ -49,15 +50,11 @@ export default function ProfilePage() {
   const { currentUser, userProfile } = useAuth();
   const userId = currentUser?.uid;
 
-  // 1. Fetch user data
   const { data: userData, loading: userLoading } = useDocument<UserDoc>("users", userId);
-
-  // 2. Custom hooks for stats/achievements
   const { stats, levelInfo, loading: statsLoading } = useUserStats(userId);
   const { certificates, loading: certsLoading } = useCertificates(userId);
   const { achievements, loading: achLoading, refetch: refetchAchievements } = useAchievements(userId);
 
-  // Claim logic
   const handleClaim = async (achId: string) => {
     if (!userId) return;
     const result = await claimAchievement(userId, achId);
@@ -96,12 +93,15 @@ export default function ProfilePage() {
   return (
     <Tooltip.Provider>
       <div style={{ background: "#0F0F1A", minHeight: "100vh", color: "#E4E1EE", padding: "40px 0" }}>
+        <style>{`
+          @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+          @keyframes glowAvatar { 0%,100%{box-shadow:0 0 20px rgba(108,99,255,0.3)} 50%{box-shadow:0 0 40px rgba(108,99,255,0.6)} }
+        `}</style>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px" }}>
-          
-          {/* Main Grid Layout */}
+
           <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 32, alignItems: "start" }}>
-            
-            {/* Left Column: User Card */}
+
+            {/* Left Card */}
             <div
               style={{
                 background: "rgba(26,26,46,0.7)",
@@ -109,6 +109,8 @@ export default function ProfilePage() {
                 padding: "32px 24px",
                 border: "1px solid rgba(255,255,255,0.06)",
                 textAlign: "center",
+                backdropFilter: "blur(12px)",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.2)",
               }}
             >
               <div style={{ position: "relative", width: 110, height: 110, margin: "0 auto 20px" }}>
@@ -122,6 +124,7 @@ export default function ProfilePage() {
                     objectFit: "cover",
                     border: "3px solid #6C63FF",
                     background: "#1a1a2e",
+                    animation: "glowAvatar 3s ease-in-out infinite",
                   }}
                 />
                 <div
@@ -158,7 +161,6 @@ export default function ProfilePage() {
 
               <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "24px 0" }} />
 
-              {/* Meta Info */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#C7C4D8" }}>
                   <Mail size={16} color="#47464f" />
@@ -174,7 +176,30 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Level Badge on side */}
+              <button
+                style={{
+                  marginTop: 20,
+                  width: "100%",
+                  padding: "8px",
+                  borderRadius: 10,
+                  background: "rgba(108,99,255,0.1)",
+                  border: "1px solid rgba(108,99,255,0.2)",
+                  color: "#6C63FF",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  transition: "all .2s",
+                }}
+                onMouseOver={e => { e.currentTarget.style.background = "rgba(108,99,255,0.2)"; e.currentTarget.style.borderColor = "rgba(108,99,255,0.4)"; }}
+                onMouseOut={e => { e.currentTarget.style.background = "rgba(108,99,255,0.1)"; e.currentTarget.style.borderColor = "rgba(108,99,255,0.2)"; }}
+              >
+                <Edit3 size={14} /> Edit Profile
+              </button>
+
               <div style={{ marginTop: 20 }}>
                 <LevelBadge
                   level={levelInfo.level}
@@ -187,10 +212,9 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Right Column: Stats & Content */}
+            {/* Right Column */}
             <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-              
-              {/* Core Level Banner */}
+
               <div
                 style={{
                   background: `linear-gradient(135deg, ${levelInfo.color}15, rgba(108,99,255,0.06))`,
@@ -239,7 +263,6 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                {/* Level Progress Bar */}
                 <LevelProgressBar
                   level={levelInfo.level}
                   progress={levelInfo.progress}
@@ -253,7 +276,6 @@ export default function ProfilePage() {
                 />
               </div>
 
-              {/* Mini Stats Row */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
                 {[
                   { label: "Courses", val: enrolledCourses, icon: BookOpen, col: "#6C63FF" },
@@ -264,10 +286,11 @@ export default function ProfilePage() {
                   <div
                     key={idx}
                     style={{
-                      background: "rgba(26,26,46,0.5)",
+                      background: "rgba(26,26,46,0.6)",
                       borderRadius: 16,
                       padding: 20,
                       border: "1px solid rgba(255,255,255,0.04)",
+                      backdropFilter: "blur(8px)",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -279,13 +302,13 @@ export default function ProfilePage() {
                 ))}
               </div>
 
-              {/* Activity Charts Section */}
               <div
                 style={{
                   background: "rgba(26,26,46,0.6)",
                   borderRadius: 20,
                   padding: 24,
                   border: "1px solid rgba(255,255,255,0.06)",
+                  backdropFilter: "blur(8px)",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
@@ -320,7 +343,7 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {/* "MY COMMUNITIES" SECTION */}
+              {/* My Communities */}
               {currentUser && (
                 <div style={{ marginTop: 8 }}>
                   <h2 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
@@ -333,6 +356,7 @@ export default function ProfilePage() {
                     padding: "32px",
                     textAlign: "center",
                     border: "1px solid rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(8px)",
                   }}>
                     <MessageSquare size={32} color="#47464f" style={{ marginBottom: 12 }} />
                     <p style={{ fontSize: 14, color: "#C7C4D8", marginBottom: 16, margin: "0 0 16px 0" }}>
@@ -363,7 +387,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Certificates Section */}
+          {/* Certificates */}
           <div style={{ marginTop: 40 }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
               <Award size={20} color="#45f1c5" /> Verified Certificates ({certificates.length})
@@ -383,10 +407,9 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* Achievements Section */}
+          {/* Achievements */}
           {!achLoading && (
             <>
-              {/* Unlocked (claimable) Achievements */}
               {unlockedAchievements.length > 0 && (
                 <div style={{ marginTop: 40 }}>
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: "#FFB785", marginBottom: 16 }}>
@@ -422,7 +445,10 @@ export default function ProfilePage() {
                             fontSize: 12,
                             fontWeight: 700,
                             cursor: "pointer",
+                            transition: "transform .2s",
                           }}
+                          onMouseOver={e => e.currentTarget.style.transform = "scale(1.02)"}
+                          onMouseOut={e => e.currentTarget.style.transform = "scale(1)"}
                         >
                           Claim +{ach.xpReward} XP
                         </button>
@@ -432,7 +458,6 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Earned Badges */}
               <div style={{ marginTop: 40 }}>
                 <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16 }}>
                   🏆 Earned Badges ({achievements.filter(a => a.status === "claimed").length})
@@ -452,7 +477,10 @@ export default function ProfilePage() {
                             display: "flex",
                             alignItems: "center",
                             gap: 12,
+                            transition: "all .2s",
                           }}
+                          onMouseOver={e => { e.currentTarget.style.background = "rgba(69,241,197,0.08)"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                          onMouseOut={e => { e.currentTarget.style.background = "rgba(69,241,197,0.04)"; e.currentTarget.style.transform = "scale(1)"; }}
                         >
                           <div style={{ width: 40, height: 40, borderRadius: 10, background: "rgba(69,241,197,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#45f1c5", flexShrink: 0 }}>
                             <Award size={20} />
@@ -469,7 +497,6 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {/* Locked Goals */}
               {lockedAchievements.length > 0 && (
                 <div style={{ marginTop: 40 }}>
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16 }}>

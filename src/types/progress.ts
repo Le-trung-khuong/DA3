@@ -5,12 +5,12 @@ export type LessonStatus = "not_started" | "completed";
 export interface FlashcardProgress {
   totalCards: number;
   rememberedCards: number;
-  lastCardIndex: number; // để resume
+  lastCardIndex: number;
 }
 
 export interface VideoWatchedSegment {
-  start: number;   // giây
-  end: number;     // giây
+  start: number;
+  end: number;
 }
 
 export interface VideoTracking {
@@ -21,28 +21,25 @@ export interface VideoTracking {
   afkWarningCount: number;
   isAfk: boolean;
   lastActivityAt: number;
-  progressLocked?: boolean; // thêm mới
+  progressLocked?: boolean;
 }
 
 export interface ReadingTracking {
-  scrollProgress: number;      // 0-100
-  actualProgress: number;      // 0-100, anti-cheat
+  scrollProgress: number;
+  actualProgress: number;
   timeSpentSeconds: number;
   minTimeRequired: number;
   wordCount: number;
   scrollSpikeCount: number;
   maxScrollSpikeCount: number;
   lastActivityAt: number;
-  // Added fields for reading tracking
-  readWordsCount: number;       // số từ đã đọc thực tế (hiện không dùng, giữ cho tương thích)
-  knowledgeCheckPassed: boolean; // đã vượt qua kiểm tra nhanh chưa
-
-  // ----- Các trường mới cho Engagement Score -----
-  engagementScore: number;       // điểm tương tác 0-100
-  sectionInteraction: number;    // số heading đã tương tác
-  totalSections: number;         // tổng số heading
-  suspectedFastScroll: boolean;  // flag nghi ngờ cuộn nhanh
-  focusTimeSeconds: number;      // thời gian tab active (giây)
+  readWordsCount: number;
+  knowledgeCheckPassed: boolean;
+  engagementScore: number;
+  sectionInteraction: number;
+  totalSections: number;
+  suspectedFastScroll: boolean;
+  focusTimeSeconds: number;
 }
 
 // ---------- RESUME DATA ----------
@@ -51,19 +48,24 @@ export interface ResumeData {
   videoCurrentTime?: number;
   videoDuration?: number;
   videoTracking?: VideoTracking;
-  
+  videoBookmarks?: number[];    // mới
+  videoNotes?: string;          // mới
+
   // Reading
   readingScrollPercent?: number;
-  readingScrollTop?: number;      // lưu vị trí scroll tuyệt đối để resume
+  readingScrollTop?: number;
   readingTracking?: ReadingTracking;
-  
+  readingNotes?: Record<string, string>;     // mới: key = heading id
+  readingHighlights?: string[];              // mới: danh sách paragraph id
+  readingBookmarks?: string[];               // mới: heading ids
+
   // Flashcard
   flashcardCurrentIndex?: number;
   flashcardReviewQueue?: string[];
-  flashcardViewedSet?: string[]; // IDs của thẻ đã lật
-  
+  flashcardViewedSet?: string[];
+
   // Quiz
-  quizAnswers?: { [questionId: string]: number };
+  quizAnswers?: { [questionId: string]: number | number[] | string }; // mở rộng
   quizCurrentIndex?: number;
   quizTimeLeft?: number;
   quizRetry?: boolean;
@@ -76,20 +78,25 @@ export interface Progress {
   lessonId: string;
   status: LessonStatus;
   completedAt?: Date;
-  quizScore?: number;         // cho quiz lesson
+  quizScore?: number;
   flashcardProgress?: FlashcardProgress;
   resumeData?: ResumeData;
   updatedAt: Date;
   xpEarned: number;
 }
 
+export interface QuizAttemptAnswer {
+  questionId: string;
+  selectedOptionIndex: number;
+  selectedOptionIndexes?: number[]; // mới cho multiple
+  selectedText?: string;            // mới cho fill_blank
+  isCorrect: boolean;
+}
+
 export interface QuizAttempt {
-  userId: string;
-  courseId: string;
   lessonId: string;
-  answers: { questionId: string; selectedOptionIndex: number }[];
-  score: number;            // %
-  passed: boolean;
   startedAt: Date;
   completedAt: Date;
+  score: number;
+  answers: QuizAttemptAnswer[];
 }

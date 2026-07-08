@@ -1,9 +1,9 @@
 /**
  * src/hooks/useChat.ts
- * Hook trung tâm cho module chat:
- * - Infinite scroll (load thêm tin cũ khi cuộn lên)
- * - Realtime listener cho tin mới nhất
- * - Actions: send, edit, delete, reply, reaction, pin
+ * Hook trung tâm cho module chat
+ * ✅ Sửa remove: bỏ tham số isAdmin
+ * ✅ Sửa unpin: thêm userId
+ * ✅ Thêm markManyRead để batch
  */
 
 import {
@@ -26,12 +26,13 @@ import {
   pinMessage,
   unpinMessage,
   markMessageAsRead,
+  markMessagesAsRead,
   markRoomAsRead,
 } from "../services/chatService";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 30; // số tin load mỗi lần cuộn lên
+const PAGE_SIZE = 30;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -65,11 +66,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
 
     case "REALTIME_UPDATE": {
-      // Ghép tin mới từ realtime vào danh sách, loại bỏ duplicate bằng id
       const existingIds = new Set(state.messages.map((m) => m.id));
       const fresh = action.newMessages.filter((m) => !existingIds.has(m.id));
       if (fresh.length === 0) {
-        // Cập nhật các trường có thể thay đổi (reactions, readBy, isPinned, ...)
         const updated = state.messages.map((m) => {
           const found = action.newMessages.find((n) => n.id === m.id);
           return found ?? m;
@@ -112,12 +111,10 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     error: null,
   });
 
-  // Con trỏ để phân trang: document cũ nhất đang có
   const oldestDocRef = useRef<DocumentSnapshot | null>(null);
-  // Dùng để tránh trigger realtime trước khi load init xong
   const initDoneRef = useRef(false);
 
-  // ── 1. Load trang đầu (PAGE_SIZE tin gần nhất) + realtime listener ──────
+  // ── 1. Load trang đầu + realtime listener ──────────────────────────────
   useEffect(() => {
     if (!roomId) return;
 
@@ -132,15 +129,13 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
       (snap) => {
         const docs = snap.docs
           .map((d) => ({ id: d.id, ...d.data() } as ChatMessage))
-          .reverse(); // asc order để hiển thị
+          .reverse();
 
         if (!initDoneRef.current) {
-          // Lưu cursor cho loadMore
           oldestDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
           dispatch({ type: "INIT_DONE", messages: docs });
           initDoneRef.current = true;
         } else {
-          // Update realtime
           dispatch({ type: "REALTIME_UPDATE", newMessages: docs });
         }
       },
@@ -153,7 +148,7 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     };
   }, [roomId]);
 
-  // ── 2. Load thêm tin cũ hơn (infinite scroll lên trên) ──────────────────
+  // ── 2. Load thêm tin cũ hơn ──────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (!roomId || state.loadingMore || !state.hasMore || !oldestDocRef.current) return;
 
@@ -170,7 +165,6 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
       const older = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as ChatMessage))
         .reverse();
-      // Cập nhật cursor
       oldestDocRef.current = snap.docs[snap.docs.length - 1] ?? oldestDocRef.current;
       dispatch({ type: "LOAD_MORE_DONE", older });
     } catch (err) {
@@ -218,10 +212,11 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     [roomId, currentUserId]
   );
 
+  // ✅ FIX: bỏ tham số isAdmin
   const remove = useCallback(
-    async (messageId: string, isAdmin = false) => {
+    async (messageId: string) => {
       if (!roomId || !currentUserId) return;
-      await deleteMessageByUser(roomId, messageId, currentUserId, isAdmin);
+      await deleteMessageByUser(roomId, messageId, currentUserId);
     },
     [roomId, currentUserId]
   );
@@ -242,6 +237,7 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     [roomId, currentUserId]
   );
 
+  // ✅ FIX: pin tự kiểm tra quyền
   const pin = useCallback(
     async (messageId: string) => {
       if (!roomId || !currentUserId) return;
@@ -250,18 +246,28 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     [roomId, currentUserId]
   );
 
+  // ✅ FIX: unpin cần truyền userId
   const unpin = useCallback(
     async (messageId: string) => {
-      if (!roomId) return;
-      await unpinMessage(roomId, messageId);
+      if (!roomId || !currentUserId) return;
+      await unpinMessage(roomId, messageId, currentUserId);
     },
-    [roomId]
+    [roomId, currentUserId]
   );
 
   const markRead = useCallback(
     async (messageId: string) => {
       if (!roomId || !currentUserId) return;
       await markMessageAsRead(roomId, messageId, currentUserId);
+    },
+    [roomId, currentUserId]
+  );
+
+  // ✅ NEW: batch mark read
+  const markManyRead = useCallback(
+    async (messageIds: string[]) => {
+      if (!roomId || !currentUserId || messageIds.length === 0) return;
+      await markMessagesAsRead(roomId, messageIds, currentUserId);
     },
     [roomId, currentUserId]
   );
@@ -288,6 +294,7 @@ export function useChat(roomId: string | undefined, currentUserId: string | unde
     pin,
     unpin,
     markRead,
+    markManyRead,
     markRoomRead,
   };
 }

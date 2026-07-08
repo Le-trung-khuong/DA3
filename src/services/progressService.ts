@@ -19,7 +19,7 @@ import {
 
 import { updateUserStreak } from "./streakService";
 import { getActiveEvent } from "./eventService";
-import type { ResumeData } from "../types/progress";
+import type { ResumeData, QuizAttempt } from "../types/progress";
 import { checkAndGenerateCertificate } from "./certificateService";
 import { checkAndUnlockAchievementsLegacy } from "./achievementService";
 import { checkAndCompleteDailyTask } from "./dailyGoalService";
@@ -44,14 +44,6 @@ export interface LessonProgress {
   completedAt?: Timestamp;
   lastActivityAt: Timestamp;
   xpEarned: number;
-}
-
-export interface QuizAttempt {
-  lessonId: string;
-  startedAt: Date;
-  completedAt: Date;
-  score: number;
-  answers: Array<{ questionId: string; selectedOptionIndex: number; isCorrect: boolean }>;
 }
 
 export interface FlashcardProgress {
@@ -436,10 +428,10 @@ export async function completeLessonClient(
   const todayLessons = await getTodayLessonCount(userId);
   calculatedXP = applyDiminishingReturns(calculatedXP, todayLessons + 1);
 
-  // ─── 6. Đảm bảo không vượt quá giới hạn còn lại ──────────────────────
-  const finalXPReward = Math.min(calculatedXP, xpCheck.remaining);
-
-  // ─── 7. Áp dụng event multiplier (nếu có) ──────────────────────────────
+  // ─── 6. Áp dụng event multiplier (nếu có) — PHẢI làm TRƯỚC khi cap theo
+  //         giới hạn XP còn lại trong ngày. Thứ tự cũ (cap trước, nhân sau)
+  //         khiến DAILY_XP_LIMIT bị vô hiệu hóa mỗi khi có event đang chạy,
+  //         vì phần cap không tính đến hệ số nhân sẽ áp dụng ngay sau đó. ────
   let eventMultiplier = 1;
   try {
     const activeEvent = await getActiveEvent();
@@ -450,10 +442,15 @@ export async function completeLessonClient(
     console.warn("[completeLessonClient] Could not fetch active event:", err);
   }
 
-  const finalXPWithEvent = Math.floor(finalXPReward * eventMultiplier);
+  const xpAfterEvent = Math.floor(calculatedXP * eventMultiplier);
+
+  // ─── 7. Đảm bảo không vượt quá giới hạn XP còn lại trong ngày ──────────
+  //         (cap SAU khi đã nhân hệ số, để giới hạn ngày luôn là giới hạn cứng
+  //         thực sự, bất kể có event nhân XP hay không)
+  const finalXPWithEvent = Math.min(xpAfterEvent, xpCheck.remaining);
 
   console.log(
-    `[XP] Lesson ${lessonId}: base=${calculatedXP}, afterDiminishing=${finalXPReward}, event=x${eventMultiplier}, final=${finalXPWithEvent}`
+    `[XP] Lesson ${lessonId}: base=${calculatedXP}, event=x${eventMultiplier}, afterEvent=${xpAfterEvent}, remainingToday=${xpCheck.remaining}, final=${finalXPWithEvent}`
   );
 
   // ─── 8. Transaction ──────────────────────────────────────────────────────
@@ -501,92 +498,97 @@ export async function completeLessonClient(
   console.log(`[completeLessonClient] Transaction committed, XP awarded: ${finalXPWithEvent}`);
 
   // ─── 9. Side effects ─────────────────────────────────────────────────────
-  Promise.allSettled([
-    updateUserStreak(userId).catch((err) => console.error("Streak error:", err)),
-    addXPLog(userId, finalXPWithEvent, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
-      (err) => console.error("XPLog error:", err)
-    ),
-    checkAndCompleteDailyTask(userId, lessonType).catch((err) => console.error("DailyTask error:", err)),
-    (async () => {
-      try {
-        // Certificate check
-        const courseRef = doc(db, "courses", courseId);
-        const courseSnap = await getDoc(courseRef);
-        if (courseSnap.exists()) {
-          const courseData = courseSnap.data();
-          const modules = courseData.modules || [];
-          const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
-          const courseTitle = courseData.title || "Untitled";
-          const userSnap = await getDoc(userRef);
-          const userName = userSnap.exists()
-            ? userSnap.data().displayName || userSnap.data().name || "User"
-            : "User";
-          await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
-        }
-      } catch (certErr) {
-        console.error("Certificate error:", certErr);
+Promise.allSettled([
+  updateUserStreak(userId).catch((err) => console.error("Streak error:", err)),
+  addXPLog(userId, finalXPWithEvent, `Completed lesson: ${lessonId} (${lessonType})`, "lesson_complete").catch(
+    (err) => console.error("XPLog error:", err)
+  ),
+  checkAndCompleteDailyTask(userId, lessonType).catch((err) => console.error("DailyTask error:", err)),
+  (async () => {
+    try {
+      // Certificate check
+      const courseRef = doc(db, "courses", courseId);
+      const courseSnap = await getDoc(courseRef);
+      if (courseSnap.exists()) {
+        const courseData = courseSnap.data();
+        const modules = courseData.modules || [];
+        const totalLessons = modules.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0);
+        const courseTitle = courseData.title || "Untitled";
+        const userSnap = await getDoc(userRef);
+        const userName = userSnap.exists()
+          ? userSnap.data().displayName || userSnap.data().name || "User"
+          : "User";
+        await checkAndGenerateCertificate(userId, courseId, courseTitle, userName, totalLessons);
       }
-    })(),
-    (async () => {
-      try {
-        // Achievements (legacy) - 4 calls sequential
-        const userSnapAfter = await getDoc(userRef);
-        const userDataAfter = userSnapAfter.data() || {};
-        const completedLessonsQuery = query(
-          collection(db, "progress"),
-          where("userId", "==", userId),
-          where("status", "==", "completed")
-        );
-        const completedLessonsSnap = await getDocs(completedLessonsQuery);
-        const completedLessonsCount = completedLessonsSnap.size;
+    } catch (certErr) {
+      console.error("Certificate error:", certErr);
+    }
+  })(),
+  (async () => {
+    try {
+      // Achievements (legacy) - 4 calls sequential
+      const userSnapAfter = await getDoc(userRef);
+      const userDataAfter = userSnapAfter.data() || {};
+      const completedLessonsQuery = query(
+        collection(db, "progress"),
+        where("userId", "==", userId),
+        where("status", "==", "completed")
+      );
+      const completedLessonsSnap = await getDocs(completedLessonsQuery);
+      const completedLessonsCount = completedLessonsSnap.size;
 
-        const enrollQuery = query(
-          collection(db, "enrollments"),
-          where("userId", "==", userId),
-          where("isActive", "==", true)
-        );
-        const enrollSnap = await getDocs(enrollQuery);
-        const courseIds = enrollSnap.docs.map((d) => d.data().courseId);
+      const enrollQuery = query(
+        collection(db, "enrollments"),
+        where("userId", "==", userId),
+        where("isActive", "==", true)
+      );
+      const enrollSnap = await getDocs(enrollQuery);
+      const courseIds = enrollSnap.docs.map((d) => d.data().courseId);
 
-        const completedPerCourse: Record<string, number> = {};
-        completedLessonsSnap.forEach((docSnap) => {
-          const p = docSnap.data();
-          const cid = p.courseId;
-          if (cid) completedPerCourse[cid] = (completedPerCourse[cid] || 0) + 1;
+      const completedPerCourse: Record<string, number> = {};
+      completedLessonsSnap.forEach((docSnap) => {
+        const p = docSnap.data();
+        const cid = p.courseId;
+        if (cid) completedPerCourse[cid] = (completedPerCourse[cid] || 0) + 1;
+      });
+
+      let completedCoursesCount = 0;
+      const batchSize = 30;
+      for (let i = 0; i < courseIds.length; i += batchSize) {
+        const batchIds = courseIds.slice(i, i + batchSize);
+        const courseRefs = batchIds.map((cid) => doc(db, "courses", cid));
+        const courseSnaps = await Promise.all(courseRefs.map((ref) => getDoc(ref)));
+        courseSnaps.forEach((snap, idx) => {
+          if (snap.exists()) {
+            const total =
+              snap.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
+            const completed = completedPerCourse[batchIds[idx]] || 0;
+            if (total > 0 && completed === total) completedCoursesCount++;
+          }
         });
-
-        let completedCoursesCount = 0;
-        const batchSize = 30;
-        for (let i = 0; i < courseIds.length; i += batchSize) {
-          const batchIds = courseIds.slice(i, i + batchSize);
-          const courseRefs = batchIds.map((cid) => doc(db, "courses", cid));
-          const courseSnaps = await Promise.all(courseRefs.map((ref) => getDoc(ref)));
-          courseSnaps.forEach((snap, idx) => {
-            if (snap.exists()) {
-              const total =
-                snap.data()?.modules?.reduce((acc: number, m: any) => acc + (m.lessons?.length || 0), 0) || 0;
-              const completed = completedPerCourse[batchIds[idx]] || 0;
-              if (total > 0 && completed === total) completedCoursesCount++;
-            }
-          });
-        }
-
-        const eventData = {
-          totalXP: userDataAfter.totalXP || 0,
-          completedLessons: completedLessonsCount,
-          currentStreak: userDataAfter.currentStreak || 0,
-          completedCourses: completedCoursesCount,
-        };
-        // Gọi achievement check 4 lần – có thể optimize nhưng không critical
-        await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
-        await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
-        await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);
-        await checkAndUnlockAchievementsLegacy(userId, "courses_completed", eventData.completedCourses, eventData);
-      } catch (achErr) {
-        console.error("Achievement error:", achErr);
       }
-    })(),
-  ]).catch((err) => console.error("Side effects error:", err));
+
+      const eventData = {
+        totalXP: userDataAfter.totalXP || 0,
+        completedLessons: completedLessonsCount,
+        currentStreak: userDataAfter.currentStreak || 0,
+        completedCourses: completedCoursesCount,
+      };
+      await checkAndUnlockAchievementsLegacy(userId, "lessons_completed", eventData.completedLessons, eventData);
+      await checkAndUnlockAchievementsLegacy(userId, "total_xp", eventData.totalXP, eventData);
+      await checkAndUnlockAchievementsLegacy(userId, "streak_days", eventData.currentStreak, eventData);
+      await checkAndUnlockAchievementsLegacy(userId, "courses_completed", eventData.completedCourses, eventData);
+    } catch (achErr) {
+      console.error("Achievement error:", achErr);
+    }
+  })(),
+]).then(results => {
+  results.forEach((r, idx) => {
+    if (r.status === 'rejected') {
+      console.warn(`[SideEffect ${idx}] failed:`, r.reason);
+    }
+  });
+}).catch((err) => console.error("Side effects error:", err));
 
   console.log(`[completeLessonClient] Lesson ${lessonId} completed successfully.`);
 }
@@ -670,7 +672,7 @@ export async function addXPLog(
   userId: string,
   amount: number,
   reason: string,
-  activityType: "lesson_complete" | "quiz_complete" | "admin_adjustment" | "refund" | "achievement",
+  activityType: "lesson_complete" | "quiz_complete" | "admin_adjustment" | "refund" | "achievement" | "daily_task",
   adminNote?: string
 ): Promise<void> {
   await setDoc(doc(collection(db, "xp_logs")), {

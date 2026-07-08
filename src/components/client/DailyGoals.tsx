@@ -44,13 +44,20 @@ const DailyGoals: React.FC = () => {
   const done = completedIds.length;
 
   return (
-    <div style={{ background: 'rgba(26,26,46,0.5)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: 20 }}>
+    <div style={{ background: 'rgba(26,26,46,0.7)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.07)', padding: 24, backdropFilter: 'blur(12px)', boxShadow: '0 4px 24px rgba(0,0,0,0.2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#E4E1EE', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Target size={22} color="#6C63FF" /> Nhiệm vụ hằng ngày
         </h2>
-        <span style={{ fontSize: 14, color: '#C7C4D8', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: 20 }}>
-          {done}/{total}
+        <span style={{
+          fontSize: 13, fontWeight: 800,
+          color: done === total ? '#45f1c5' : '#C7C4D8',
+          background: done === total ? 'rgba(69,241,197,0.12)' : 'rgba(255,255,255,0.05)',
+          border: done === total ? '1px solid rgba(69,241,197,0.25)' : '1px solid rgba(255,255,255,0.06)',
+          padding: '5px 14px', borderRadius: 999,
+          transition: 'all .3s',
+        }}>
+          {done}/{total} {done === total ? '✓' : ''}
         </span>
       </div>
 
@@ -61,14 +68,12 @@ const DailyGoals: React.FC = () => {
             <li
               key={task.id}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '10px 12px',
-                borderRadius: 8,
-                marginBottom: 4,
-                background: isDone ? 'rgba(255,255,255,0.04)' : 'transparent',
-                opacity: isDone ? 0.7 : 1,
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '11px 14px', borderRadius: 12, marginBottom: 6,
+                background: isDone ? 'rgba(69,241,197,0.06)' : 'rgba(255,255,255,0.02)',
+                border: isDone ? '1px solid rgba(69,241,197,0.15)' : '1px solid rgba(255,255,255,0.04)',
+                transition: 'all .2s',
+                opacity: isDone ? 0.75 : 1,
               }}
             >
               {isDone ? (
@@ -79,7 +84,7 @@ const DailyGoals: React.FC = () => {
               <span style={{ fontSize: 15, color: isDone ? '#47464f' : '#E4E1EE', textDecoration: isDone ? 'line-through' : 'none' }}>
                 {task.icon} {task.text}
               </span>
-              <span style={{ marginLeft: 'auto', fontSize: 13, color: '#C7C4D8' }}>
+              <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: isDone ? '#45f1c5' : '#6C63FF', background: isDone ? 'rgba(69,241,197,0.1)' : 'rgba(108,99,255,0.1)', padding: '3px 9px', borderRadius: 999 }}>
                 +{task.xpReward} XP
               </span>
             </li>
@@ -88,7 +93,7 @@ const DailyGoals: React.FC = () => {
       </ul>
 
       {done === total && (
-        <div style={{ marginTop: 16, padding: 12, background: 'rgba(69,241,197,0.1)', borderRadius: 8, textAlign: 'center', color: '#45f1c5' }}>
+        <div style={{ marginTop: 16, padding: '14px 16px', background: 'linear-gradient(135deg,rgba(69,241,197,0.12),rgba(0,212,170,0.08))', borderRadius: 12, textAlign: 'center', color: '#45f1c5', border: '1px solid rgba(69,241,197,0.2)', boxShadow: '0 4px 16px rgba(69,241,197,0.1)' }}>
           🎉 Hoàn thành tất cả nhiệm vụ hôm nay!
         </div>
       )}

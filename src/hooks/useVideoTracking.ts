@@ -51,7 +51,7 @@ export function useVideoTracking(
   moduleId: string,
   lessonId: string,
   isCompleted: boolean,
-  onAfkTimeout?: () => void // ✅ Thêm callback
+  onAfkTimeout?: () => void
 ): [VideoTrackingState, VideoTrackingActions] {
   const segmentsRef = useRef<WatchedSegment[]>([]);
   const skipCountRef = useRef(0);
@@ -199,7 +199,6 @@ export function useVideoTracking(
             clearInterval(countdownTimer!);
             isPlayingRef.current = false;
             afkActiveRef.current = false;
-            // ✅ UX-2: Gọi callback để pause video
             if (onAfkTimeout) {
               onAfkTimeout();
             }

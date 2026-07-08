@@ -8,6 +8,9 @@
  * 
  * - Admin: xem tất cả.
  * - Instructor: chỉ xem được nếu instructorId == uid.
+ * 
+ * ✅ Đã cập nhật LessonType (loại bỏ assignment)
+ * ✅ Đã import LinkIcon
  */
 
 "use client";
@@ -37,6 +40,7 @@ import {
   TrendingUp, Award, MessageSquare, RefreshCw, AlertTriangle,
   Loader, Video, Layers, DollarSign, Activity,
   Copy, Info, GraduationCap,
+  Link as LinkIcon, // ✅ đã thêm
 } from "lucide-react";
 
 // ─── Import services ─────────────────────────────────────────────────────────
@@ -46,9 +50,9 @@ import { getEnrollmentCount } from "../../../services/enrollmentService";
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
-type CourseStatus  = "published" | "draft" | "archived";
-type CourseLevel   = "beginner" | "intermediate" | "advanced" | "all_levels";
-type LessonType    = "video" | "quiz" | "reading" | "assignment" | "flashcard";
+type CourseStatus = "published" | "draft" | "archived";
+type CourseLevel = "beginner" | "intermediate" | "advanced" | "all_levels";
+type LessonType = "video" | "quiz" | "reading" | "flashcard"; // ✅ đã loại bỏ "assignment"
 
 interface Lesson {
   id: string;
@@ -59,6 +63,9 @@ interface Lesson {
   xpReward: number;
   isFree: boolean;
   order: number;
+  // 🆕 Các trường mới (đọc từ Firestore)
+  releaseAt?: string | Date;
+  prerequisites?: string[];
 }
 
 interface Module {
@@ -101,7 +108,7 @@ interface Course {
   updatedAt: any;
   xpTotal: number;
   completionRate: number;
-  instructorId?: string; // 👈 thêm
+  instructorId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -139,17 +146,16 @@ const totalXPCount = (modules?: Module[]) => {
 };
 
 const LESSON_META: Record<LessonType, { label: string; color: string; bg: string; Icon: React.ElementType }> = {
-  video:      { label: "Video",      color: "#6C63FF", bg: "rgba(108,99,255,.14)", Icon: Play },
-  quiz:       { label: "Quiz",       color: "#45f1c5", bg: "rgba(69,241,197,.12)", Icon: Zap },
-  reading:    { label: "Reading",    color: "#FFB785", bg: "rgba(255,183,133,.12)", Icon: BookOpen },
-  assignment: { label: "Assignment", color: "#ffb4ab", bg: "rgba(255,180,171,.12)", Icon: FileText },
-  flashcard:  { label: "Flashcard",  color: "#c4c0ff", bg: "rgba(196,192,255,.12)", Icon: Layers },
+  video: { label: "Video", color: "#6C63FF", bg: "rgba(108,99,255,.14)", Icon: Play },
+  quiz: { label: "Quiz", color: "#45f1c5", bg: "rgba(69,241,197,.12)", Icon: Zap },
+  reading: { label: "Reading", color: "#FFB785", bg: "rgba(255,183,133,.12)", Icon: BookOpen },
+  flashcard: { label: "Flashcard", color: "#c4c0ff", bg: "rgba(196,192,255,.12)", Icon: Layers },
 };
 
 const STATUS_CFG: Record<CourseStatus, { label: string; color: string; bg: string; border: string; Icon: React.ElementType }> = {
-  published: { label: "Published", color: "#45f1c5", bg: "rgba(69,241,197,.12)",  border: "rgba(69,241,197,.28)",  Icon: CheckCircle },
-  draft:     { label: "Draft",     color: "#FFB785", bg: "rgba(255,183,133,.12)", border: "rgba(255,183,133,.28)", Icon: PauseCircle },
-  archived:  { label: "Archived",  color: "#B0AEC0", bg: "rgba(176,174,192,.12)", border: "rgba(176,174,192,.22)", Icon: EyeOff },
+  published: { label: "Published", color: "#45f1c5", bg: "rgba(69,241,197,.12)", border: "rgba(69,241,197,.28)", Icon: CheckCircle },
+  draft: { label: "Draft", color: "#FFB785", bg: "rgba(255,183,133,.12)", border: "rgba(255,183,133,.28)", Icon: PauseCircle },
+  archived: { label: "Archived", color: "#B0AEC0", bg: "rgba(176,174,192,.12)", border: "rgba(176,174,192,.22)", Icon: EyeOff },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -167,7 +173,7 @@ function StatsBadge({ icon: Icon, label, value, sub, accent, glow, loading }: an
       position: "relative", overflow: "hidden",
     }}
       onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)"; }}
-      onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";    }}
+      onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
     >
       <div style={{ position: "absolute", top: -20, right: -20, width: 70, height: 70, borderRadius: "50%", background: accent, filter: "blur(28px)", opacity: .18, pointerEvents: "none" }} />
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -208,7 +214,7 @@ function CourseInfo({ course, onEdit }: { course: Course; onEdit: () => void }) 
         )}
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity .2s" }}
           onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = "1"; }}
-          onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; }}>
+          onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; }}>
           <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(26,26,46,.85)", backdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px rgba(108,99,255,.4)" }}>
             <Play size={24} color="#e3dfff" fill="#e3dfff" />
           </div>
@@ -313,7 +319,7 @@ function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,.022)", border: "1px solid rgba(255,255,255,.06)", transition: "background .15s", cursor: "default" }}
       onMouseOver={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.04)"; }}
-      onMouseOut={(e)  => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.022)"; }}>
+      onMouseOut={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,.022)"; }}>
       <span style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(108,99,255,.18)", border: "1px solid rgba(108,99,255,.28)", fontSize: 10, fontWeight: 800, color: "#c4c0ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         {index + 1}
       </span>
@@ -326,6 +332,18 @@ function LessonRow({ lesson, index }: { lesson: Lesson; index: number }) {
       {lesson.isFree && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 999, background: "rgba(69,241,197,.1)", border: "1px solid rgba(69,241,197,.25)", fontSize: 10, fontWeight: 700, color: "#45f1c5", flexShrink: 0 }}>
           <Eye size={9} /> Free
+        </span>
+      )}
+      {/* 🆕 Hiển thị Drip Content trong admin */}
+      {lesson.releaseAt && (
+        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#FFB785", flexShrink: 0 }}>
+          <Clock size={10} /> {new Date(lesson.releaseAt).toLocaleDateString()}
+        </span>
+      )}
+      {/* 🆕 Hiển thị Prerequisites trong admin */}
+      {lesson.prerequisites && lesson.prerequisites.length > 0 && (
+        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6C63FF", flexShrink: 0 }}>
+          <LinkIcon size={10} /> {lesson.prerequisites.length} req.
         </span>
       )}
       <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: "#FFB785", flexShrink: 0 }}>
@@ -438,7 +456,7 @@ function ReviewsPanel({ courseId }: { courseId: string }) {
 
   useEffect(() => {
     if (!courseId) return;
-    
+
     const fetchReviews = async () => {
       setLoading(true);
       try {
@@ -451,7 +469,7 @@ function ReviewsPanel({ courseId }: { courseId: string }) {
         const reviewList: Review[] = [];
         const dist = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
         let totalRating = 0;
-        
+
         snapshot.forEach((doc) => {
           const data = doc.data();
           const rating = data.rating || 0;
@@ -467,7 +485,7 @@ function ReviewsPanel({ courseId }: { courseId: string }) {
           totalRating += rating;
           dist[rating as keyof typeof dist]++;
         });
-        
+
         setReviews(reviewList);
         setAvgRating(reviewList.length ? totalRating / reviewList.length : 0);
         setRatingDist([
@@ -483,7 +501,7 @@ function ReviewsPanel({ courseId }: { courseId: string }) {
         setLoading(false);
       }
     };
-    
+
     fetchReviews();
   }, [courseId]);
 
@@ -577,7 +595,7 @@ function EnrollmentChart({ courseId }: { courseId: string }) {
 
   useEffect(() => {
     if (!courseId) return;
-    
+
     const fetchEnrollments = async () => {
       setLoading(true);
       try {
@@ -590,13 +608,13 @@ function EnrollmentChart({ courseId }: { courseId: string }) {
         const snapshot = await getDocs(q);
         const monthlyMap = new Map<string, number>();
         const now = new Date();
-        
+
         for (let i = 5; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const key = date.toLocaleString("default", { month: "short" });
           monthlyMap.set(key, 0);
         }
-        
+
         snapshot.forEach((doc) => {
           const enrolledAt = doc.data().enrolledAt?.toDate();
           if (enrolledAt) {
@@ -606,7 +624,7 @@ function EnrollmentChart({ courseId }: { courseId: string }) {
             }
           }
         });
-        
+
         const chartData = Array.from(monthlyMap.entries()).map(([date, count]) => ({ date, count }));
         setData(chartData);
       } catch (err) {
@@ -616,7 +634,7 @@ function EnrollmentChart({ courseId }: { courseId: string }) {
         setLoading(false);
       }
     };
-    
+
     fetchEnrollments();
   }, [courseId]);
 
@@ -639,8 +657,8 @@ function EnrollmentChart({ courseId }: { courseId: string }) {
         <AreaChart data={data} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
           <defs>
             <linearGradient id="gEnroll" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#45f1c5" stopOpacity={.3} />
-              <stop offset="95%" stopColor="#45f1c5" stopOpacity={0}  />
+              <stop offset="5%" stopColor="#45f1c5" stopOpacity={.3} />
+              <stop offset="95%" stopColor="#45f1c5" stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.04)" vertical={false} />
@@ -686,10 +704,10 @@ function Section({ title, subtitle, icon: Icon, children, action }: {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TABS = [
-  { id: "overview",    label: "Overview",   Icon: Info         },
-  { id: "curriculum",  label: "Curriculum",  Icon: BookOpen     },
-  { id: "analytics",   label: "Analytics",   Icon: TrendingUp   },
-  { id: "reviews",     label: "Reviews",     Icon: MessageSquare },
+  { id: "overview", label: "Overview", Icon: Info },
+  { id: "curriculum", label: "Curriculum", Icon: BookOpen },
+  { id: "analytics", label: "Analytics", Icon: TrendingUp },
+  { id: "reviews", label: "Reviews", Icon: MessageSquare },
 ] as const;
 type TabId = typeof TABS[number]["id"];
 
@@ -700,7 +718,7 @@ type TabId = typeof TABS[number]["id"];
 export default function CourseDetailAdmin() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const { currentUser, role } = useAuth(); // 👈 lấy user và role
+  const { currentUser, role } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [enrollCount, setEnrollCount] = useState<number | null>(null);
   const [enrollLoading, setEnrollLoading] = useState(true);
@@ -744,7 +762,7 @@ export default function CourseDetailAdmin() {
     xpTotal: rawData.xpTotal || 0,
     createdAt: toDate(rawData.createdAt),
     updatedAt: toDate(rawData.updatedAt),
-    instructorId: rawData.instructorId || undefined, // 👈 thêm
+    instructorId: rawData.instructorId || undefined,
   } : null;
 
   // 👇 Kiểm tra quyền truy cập
@@ -874,7 +892,7 @@ export default function CourseDetailAdmin() {
 
         {activeTab === "overview" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, animation: "fadeDown .25s ease" }}>
-            
+
             {/* 👈 CỘT TRÁI: Instructor Section (chỉ hiển thị nếu không có instructor) */}
             {!course.instructorId && (
               <Section title="Instructor" subtitle="Linked via instructorId field in Firestore" icon={Award}>
@@ -899,7 +917,6 @@ export default function CourseDetailAdmin() {
                   ["Created", fmtDate(course.createdAt)],
                   ["Updated", fmtDate(course.updatedAt)],
                   ["Instructor ID", course.instructorId || "—"],
-                  // 🆕 Community
                   [
                     "Community",
                     rawData?.enableCommunity ? (
@@ -948,8 +965,8 @@ export default function CourseDetailAdmin() {
               </Section>
               <Section title="Completion Funnel" subtitle="Lesson-by-lesson dropout" icon={Activity}>
                 <ResponsiveContainer width="100%" height={180}>
-                  <BarChart 
-                    data={course.modules?.map((_: any, i: number) => ({ name: `M${i + 1}`, rate: 95 - i * 8 })) || []} 
+                  <BarChart
+                    data={course.modules?.map((_: any, i: number) => ({ name: `M${i + 1}`, rate: 95 - i * 8 })) || []}
                     margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.04)" vertical={false} />

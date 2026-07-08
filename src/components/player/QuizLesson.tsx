@@ -12,14 +12,9 @@ import {
 import { LessonCompleteButton } from "./LessonCompleteButton";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../utils/config";
-
-interface QuizQuestion {
-  id: string;
-  text: string;
-  options: string[];
-  correctOptionIndex: number;
-  explanation?: string;
-}
+import { normalizeAnswer } from "../../utils/textAnswer";
+import { recordTopicStats } from "../../services/weaknessAnalysisService";
+import { QuizQuestion } from "../../types/lesson"; // import type mới
 
 interface QuizLessonProps {
   userId: string;
@@ -33,6 +28,28 @@ interface QuizLessonProps {
   onComplete?: () => void;
   isCompleted?: boolean;
   lessonType?: "lesson" | "quiz" | "reading" | "video" | "flashcard";
+  questionsToShow?: number;
+}
+
+function isAnswerCorrect(q: QuizQuestion, selected: number | number[] | string | undefined): boolean {
+  if (selected === undefined || selected === null) return false;
+
+  if (q.type === "multiple") {
+    const correct = new Set(q.correctOptionIndexes || []);
+    const chosen = new Set((selected as number[]) || []);
+    if (correct.size !== chosen.size) return false;
+    for (const c of correct) if (!chosen.has(c)) return false;
+    return true;
+  }
+
+  if (q.type === "fill_blank") {
+    if (typeof selected !== "string") return false;
+    const normalized = normalizeAnswer(selected);
+    return (q.correctTextAnswers || []).some((a) => normalizeAnswer(a) === normalized);
+  }
+
+  // single or true_false
+  return selected === q.correctOptionIndex;
 }
 
 export function QuizLesson({
@@ -47,8 +64,9 @@ export function QuizLesson({
   onComplete,
   isCompleted: initialCompleted = false,
   lessonType = "quiz",
+  questionsToShow,
 }: QuizLessonProps) {
-  const [answers, setAnswers] = useState<{ [qid: string]: number }>({});
+  const [answers, setAnswers] = useState<{ [qid: string]: number | number[] | string }>({});
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState(0);
   const [passed, setPassed] = useState(false);
@@ -64,31 +82,31 @@ export function QuizLesson({
   const [xpEarned, setXpEarned] = useState(0);
   const [timerWarningsShown, setTimerWarningsShown] = useState<Set<number>>(new Set());
 
+  // Shuffle questions and options (subset if questionsToShow)
   const shuffledQuestions = useMemo(() => {
     if (initialCompleted) return questions;
-    const qs = questions.map((q) => ({
-      ...q,
-      _shuffledOptions: (() => {
-        const indexed = q.options.map((opt, i) => ({ opt, i }));
-        for (let j = indexed.length - 1; j > 0; j--) {
-          const k = Math.floor(Math.random() * (j + 1));
-          [indexed[j], indexed[k]] = [indexed[k], indexed[j]];
-        }
-        return indexed;
-      })(),
-    }));
-    for (let j = qs.length - 1; j > 0; j--) {
-      const k = Math.floor(Math.random() * (j + 1));
-      [qs[j], qs[k]] = [qs[k], qs[j]];
+    let pool = [...questions];
+    if (questionsToShow && questionsToShow < pool.length) {
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      pool = pool.slice(0, questionsToShow);
     }
-    return qs.map((q) => ({
-      ...q,
-      options: q._shuffledOptions.map((x) => x.opt),
-      correctOptionIndex: q._shuffledOptions.findIndex((x) => x.i === q.correctOptionIndex),
-    }));
-  }, [lessonId, initialCompleted]);
+    return pool.map((q) => {
+      const shuffledOpts = q.options.map((opt, i) => ({ opt, i }));
+      for (let j = shuffledOpts.length - 1; j > 0; j--) {
+        const k = Math.floor(Math.random() * (j + 1));
+        [shuffledOpts[j], shuffledOpts[k]] = [shuffledOpts[k], shuffledOpts[j]];
+      }
+      return {
+        ...q,
+        options: shuffledOpts.map((x) => x.opt),
+        correctOptionIndex: shuffledOpts.findIndex((x) => x.i === q.correctOptionIndex),
+      };
+    });
+  }, [questions, questionsToShow, initialCompleted]);
 
-  // ✅ Khi shuffledQuestions thay đổi, cập nhật timeLeft nếu chưa submit và chưa complete
   useEffect(() => {
     if (!submitted && !isCompletedState) {
       setTimeLeft(60 * shuffledQuestions.length);
@@ -181,9 +199,9 @@ export function QuizLesson({
     return `${mins}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  const handleSelect = (qid: string, idx: number) => {
+  const handleSelect = (qid: string, value: number | number[] | string) => {
     if (submitted || isCompletedState) return;
-    setAnswers((prev) => ({ ...prev, [qid]: idx }));
+    setAnswers((prev) => ({ ...prev, [qid]: value }));
   };
 
   const handleRetry = async () => {
@@ -213,16 +231,20 @@ export function QuizLesson({
       return;
     }
     if (submitting) return;
-    if (Object.keys(answers).length !== shuffledQuestions.length) {
+
+    // Check all answered
+    const allAnswered = shuffledQuestions.every((q) => answers[q.id] !== undefined);
+    if (!allAnswered) {
       alert(`Vui lòng trả lời tất cả ${shuffledQuestions.length} câu hỏi.`);
       return;
     }
+
     setSubmitting(true);
     setTimerActive(false);
 
     let correct = 0;
     shuffledQuestions.forEach((q) => {
-      if (answers[q.id] === q.correctOptionIndex) correct++;
+      if (isAnswerCorrect(q, answers[q.id])) correct++;
     });
     const calcScore = (correct / shuffledQuestions.length) * 100;
     const isPass = calcScore >= passingScore;
@@ -235,15 +257,31 @@ export function QuizLesson({
       startedAt: new Date(),
       completedAt: new Date(),
       score: calcScore,
-      answers: Object.entries(answers).map(([qid, selected]) => ({
-        questionId: qid,
-        selectedOptionIndex: selected,
-        isCorrect: shuffledQuestions.find((q) => q.id === qid)?.correctOptionIndex === selected,
-      })),
+      answers: shuffledQuestions.map((q) => {
+        const selected = answers[q.id];
+        let isCorrect = false;
+        if (q.type === "multiple") {
+          isCorrect = isAnswerCorrect(q, selected as number[]);
+        } else if (q.type === "fill_blank") {
+          isCorrect = isAnswerCorrect(q, selected as string);
+        } else {
+          isCorrect = isAnswerCorrect(q, selected as number);
+        }
+        return {
+          questionId: q.id,
+          selectedOptionIndex: typeof selected === "number" ? selected : -1,
+          selectedOptionIndexes: Array.isArray(selected) ? selected : undefined,
+          selectedText: typeof selected === "string" ? selected : undefined,
+          isCorrect,
+        };
+      }),
     };
 
     try {
       await saveQuizAttempt(userId, courseId, moduleId, lessonId, attempt);
+
+      // Record topic stats
+      await recordTopicStats(userId, attempt, shuffledQuestions);
 
       if (isPass && !isRetry) {
         setIsCompleting(true);
@@ -295,7 +333,8 @@ export function QuizLesson({
     onComplete,
   ]);
 
-  // ============ Render ============
+  // ===== Render =====
+  // Trạng thái completed
   if (isCompletedState && existingScore !== null) {
     return (
       <div style={{ maxWidth: 800, margin: "0 auto", textAlign: "center" }}>
@@ -352,7 +391,8 @@ export function QuizLesson({
     );
   }
 
-  if (submitted && passed && !isRetry) {
+  // Đã submit và pass
+  if (submitted && passed) {
     return (
       <div style={{ maxWidth: 800, margin: "0 auto", textAlign: "center" }}>
         <div style={{ background: "rgba(69,241,197,0.1)", borderRadius: 24, padding: 32 }}>
@@ -387,39 +427,9 @@ export function QuizLesson({
     );
   }
 
-  if (submitted && passed && isRetry) {
-    return (
-      <div style={{ maxWidth: 800, margin: "0 auto", textAlign: "center" }}>
-        <div style={{ background: "rgba(69,241,197,0.1)", borderRadius: 24, padding: 32 }}>
-          <CheckCircle size={64} color="#45f1c5" />
-          <h2 style={{ fontSize: 28, fontWeight: 800, color: "#45f1c5", marginTop: 16 }}>✅ Bạn đã vượt qua!</h2>
-          <p style={{ fontSize: 18, color: "#E4E1EE" }}>Your score: {Math.round(score)}%</p>
-          <p style={{ fontSize: 14, color: "#C7C4D8" }}>Passing score: {passingScore}%</p>
-          <p style={{ fontSize: 14, color: "#FFB785", marginTop: 8 }}>🔄 Làm lại thành công, không cộng XP.</p>
-          <button
-            onClick={() => setShowReview(true)}
-            style={{
-              marginTop: 16,
-              padding: "8px 20px",
-              borderRadius: 12,
-              background: "rgba(108,99,255,0.2)",
-              border: "1px solid rgba(108,99,255,0.3)",
-              color: "#c4c0ff",
-              cursor: "pointer",
-            }}
-          >
-            📝 Xem lại đáp án
-          </button>
-        </div>
-        {showReview && (
-          <QuizReviewModal questions={shuffledQuestions} answers={answers} score={score} onClose={() => setShowReview(false)} />
-        )}
-      </div>
-    );
-  }
-
+  // Đã submit và fail
   if (submitted && !passed) {
-    const correctCount = shuffledQuestions.filter((q) => answers[q.id] === q.correctOptionIndex).length;
+    const correctCount = shuffledQuestions.filter((q) => isAnswerCorrect(q, answers[q.id])).length;
     return (
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -435,7 +445,7 @@ export function QuizLesson({
           <h3 style={{ fontSize: 18, fontWeight: 700, color: "#E4E1EE", marginBottom: 16 }}>Review Answers</h3>
           {shuffledQuestions.map((q, idx) => {
             const selected = answers[q.id];
-            const isCorrect = selected === q.correctOptionIndex;
+            const isCorrect = isAnswerCorrect(q, selected);
             return (
               <div
                 key={q.id}
@@ -450,10 +460,10 @@ export function QuizLesson({
                   Q{idx + 1}. {q.text}
                 </p>
                 <p style={{ fontSize: 13, color: isCorrect ? "#45f1c5" : "#ffb4ab" }}>
-                  Your answer: {selected !== undefined ? q.options[selected] : "Not answered"}
+                  Your answer: {selected !== undefined ? (q.type === "fill_blank" ? selected : q.options[selected as number]) : "Not answered"}
                 </p>
                 {!isCorrect && (
-                  <p style={{ fontSize: 13, color: "#6C63FF" }}>Correct: {q.options[q.correctOptionIndex]}</p>
+                  <p style={{ fontSize: 13, color: "#6C63FF" }}>Correct: {q.type === "fill_blank" ? q.correctTextAnswers?.join(", ") : q.options[q.correctOptionIndex]}</p>
                 )}
                 {q.explanation && (
                   <p style={{ fontSize: 12, color: "#C7C4D8", marginTop: 8 }}>💡 {q.explanation}</p>
@@ -492,6 +502,7 @@ export function QuizLesson({
     );
   }
 
+  // ===== Quiz taking mode =====
   const currentQuestion = shuffledQuestions[currentIndex];
   const answeredCount = Object.keys(answers).length;
 
@@ -545,35 +556,64 @@ export function QuizLesson({
           {currentQuestion.text}
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {currentQuestion.options.map((opt, idx) => (
-            <label
-              key={idx}
-              onClick={() => handleSelect(currentQuestion.id, idx)}
+          {currentQuestion.type === "fill_blank" ? (
+            <input
+              type="text"
+              value={(answers[currentQuestion.id] as string) || ""}
+              onChange={(e) => handleSelect(currentQuestion.id, e.target.value)}
+              placeholder="Nhập câu trả lời..."
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
+                width: "100%",
                 padding: "12px 16px",
-                background: answers[currentQuestion.id] === idx ? "rgba(108,99,255,0.2)" : "rgba(255,255,255,0.04)",
-                border:
-                  answers[currentQuestion.id] === idx
-                    ? "1px solid rgba(108,99,255,0.5)"
-                    : "1px solid rgba(255,255,255,0.08)",
+                background: "#0d0d18",
+                border: "1px solid rgba(255,255,255,0.08)",
                 borderRadius: 12,
-                cursor: "pointer",
-                transition: "0.1s",
+                color: "#E4E1EE",
+                fontSize: 16,
+                outline: "none",
               }}
-            >
-              <input
-                type="radio"
-                name={currentQuestion.id}
-                checked={answers[currentQuestion.id] === idx}
-                onChange={() => {}}
-                style={{ accentColor: "#6C63FF" }}
-              />
-              <span style={{ fontSize: 15, color: "#C7C4D8" }}>{opt}</span>
-            </label>
-          ))}
+            />
+          ) : (
+            currentQuestion.options.map((opt, idx) => {
+              const isMultiple = currentQuestion.type === "multiple";
+              const isSelected = isMultiple
+                ? ((answers[currentQuestion.id] as number[]) || []).includes(idx)
+                : answers[currentQuestion.id] === idx;
+              return (
+                <label
+                  key={idx}
+                  onClick={() => {
+                    if (isMultiple) {
+                      const current = (answers[currentQuestion.id] as number[]) || [];
+                      const updated = current.includes(idx) ? current.filter(i => i !== idx) : [...current, idx];
+                      handleSelect(currentQuestion.id, updated);
+                    } else {
+                      handleSelect(currentQuestion.id, idx);
+                    }
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 16px",
+                    background: isSelected ? "rgba(108,99,255,0.2)" : "rgba(255,255,255,0.04)",
+                    border: isSelected ? "1px solid rgba(108,99,255,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    transition: "0.1s",
+                  }}
+                >
+                  <input
+                    type={isMultiple ? "checkbox" : "radio"}
+                    checked={isSelected}
+                    onChange={() => {}}
+                    style={{ accentColor: "#6C63FF" }}
+                  />
+                  <span style={{ fontSize: 15, color: "#C7C4D8" }}>{opt}</span>
+                </label>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -645,36 +685,20 @@ export function QuizLesson({
           </button>
         ))}
       </div>
-
-      {isCompletedState && (
-        <div style={{ marginTop: 24, textAlign: "center" }}>
-          <LessonCompleteButton
-            userId={userId}
-            courseId={courseId}
-            moduleId={moduleId}
-            lessonId={lessonId}
-            xpReward={xpReward}
-            onComplete={onComplete}
-            isCompleted={isCompletedState}
-            xpEarned={xpEarned}
-            lessonType={lessonType}
-          />
-        </div>
-      )}
     </div>
   );
 }
 
-// ============ Quiz Review Modal ============
+// ===== Quiz Review Modal =====
 interface QuizReviewModalProps {
   questions: QuizQuestion[];
-  answers: { [qid: string]: number };
+  answers: { [qid: string]: number | number[] | string };
   score: number;
   onClose: () => void;
 }
 
 function QuizReviewModal({ questions, answers, score, onClose }: QuizReviewModalProps) {
-  const correctCount = questions.filter((q) => answers[q.id] === q.correctOptionIndex).length;
+  const correctCount = questions.filter((q) => isAnswerCorrect(q, answers[q.id])).length;
   const total = questions.length;
 
   return (
@@ -738,7 +762,13 @@ function QuizReviewModal({ questions, answers, score, onClose }: QuizReviewModal
         </div>
         {questions.map((q, idx) => {
           const selected = answers[q.id];
-          const isCorrect = selected === q.correctOptionIndex;
+          const isCorrect = isAnswerCorrect(q, selected);
+          let displayAnswer = "Not answered";
+          if (selected !== undefined) {
+            if (q.type === "fill_blank") displayAnswer = selected as string;
+            else if (q.type === "multiple") displayAnswer = (selected as number[]).map(i => q.options[i]).join(", ");
+            else displayAnswer = q.options[selected as number];
+          }
           return (
             <div
               key={q.id}
@@ -757,11 +787,11 @@ function QuizReviewModal({ questions, answers, score, onClose }: QuizReviewModal
                 </span>
               </div>
               <div style={{ fontSize: 13, color: "#C7C4D8" }}>
-                Your answer: {selected !== undefined ? q.options[selected] : "Not answered"}
+                Your answer: {displayAnswer}
               </div>
               {!isCorrect && (
                 <div style={{ fontSize: 13, color: "#6C63FF", marginTop: 4 }}>
-                  ✅ Correct: {q.options[q.correctOptionIndex]}
+                  ✅ Correct: {q.type === "fill_blank" ? q.correctTextAnswers?.join(", ") : q.options[q.correctOptionIndex]}
                 </div>
               )}
               {q.explanation && (

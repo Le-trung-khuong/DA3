@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useNotifications } from "../hooks/useNotifications";
 import { useLevel } from "../hooks/useLevel";
@@ -25,11 +25,11 @@ import { PresenceUpdater } from "../components/common/PresenceUpdater";
 export default function LayoutClient() {
   const { currentUser, userProfile, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { unreadCount } = useNotifications(currentUser?.uid);
   const totalUnread = unreadCount || 0;
 
-  // ✅ Lấy level info từ totalXP
   const levelInfo = useLevel(userProfile?.totalXP);
 
   const isAdmin = userProfile?.role === "admin";
@@ -103,66 +103,55 @@ export default function LayoutClient() {
             >
               <GraduationCap size={18} color="#fff" />
             </div>
-            <span style={{ background: "linear-gradient(90deg, #fff, #C7C4D8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              Smart<span style={{ color: "#6C63FF", WebkitTextFillColor: "initial" }}>Review</span>
+            <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: "-.02em" }}>
+              <span style={{ background: "linear-gradient(90deg,#E4E1EE,#C7C4D8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Smart</span>
+              <span style={{ background: "linear-gradient(135deg,#6C63FF,#9B59B6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Review</span>
             </span>
           </Link>
 
           {/* Navigation */}
           <nav style={{ display: "flex", alignItems: "center", gap: 24 }}>
-            <Link
-              to="/"
+            <Link to="/"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: "#C7C4D8",
-                textDecoration: "none",
-                fontSize: 14,
-                fontWeight: 600,
-                transition: "color 0.2s",
+                display: "flex", alignItems: "center", gap: 6,
+                color: location.pathname === "/" ? "#a89fff" : "#C7C4D8",
+                textDecoration: "none", fontSize: 14, fontWeight: 700,
+                padding: "4px 10px", borderRadius: 8, transition: "all .15s",
+                borderBottom: location.pathname === "/" ? "2px solid #6C63FF" : "2px solid transparent",
               }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#fff")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#C7C4D8")}
+              onMouseOver={(e) => { if (location.pathname !== "/") e.currentTarget.style.color = "#fff"; }}
+              onMouseOut={(e) => { if (location.pathname !== "/") e.currentTarget.style.color = "#C7C4D8"; }}
             >
               <Home size={16} /> Home
             </Link>
-            <Link
-              to="/courses"
+            <Link to="/courses"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: "#C7C4D8",
-                textDecoration: "none",
-                fontSize: 14,
-                fontWeight: 600,
-                transition: "color 0.2s",
+                display: "flex", alignItems: "center", gap: 6,
+                color: location.pathname.startsWith("/courses") ? "#a89fff" : "#C7C4D8",
+                textDecoration: "none", fontSize: 14, fontWeight: 700,
+                padding: "4px 10px", borderRadius: 8, transition: "all .15s",
+                borderBottom: location.pathname.startsWith("/courses") ? "2px solid #6C63FF" : "2px solid transparent",
               }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#fff")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#C7C4D8")}
+              onMouseOver={(e) => { if (!location.pathname.startsWith("/courses")) e.currentTarget.style.color = "#fff"; }}
+              onMouseOut={(e) => { if (!location.pathname.startsWith("/courses")) e.currentTarget.style.color = "#C7C4D8"; }}
             >
               <BookOpen size={16} /> Courses
             </Link>
-            <Link
-              to="/leaderboard"
+            <Link to="/leaderboard"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: "#C7C4D8",
-                textDecoration: "none",
-                fontSize: 14,
-                fontWeight: 600,
-                transition: "color 0.2s",
+                display: "flex", alignItems: "center", gap: 6,
+                color: location.pathname === "/leaderboard" ? "#a89fff" : "#C7C4D8",
+                textDecoration: "none", fontSize: 14, fontWeight: 700,
+                padding: "4px 10px", borderRadius: 8, transition: "all .15s",
+                borderBottom: location.pathname === "/leaderboard" ? "2px solid #6C63FF" : "2px solid transparent",
               }}
-              onMouseOver={(e) => (e.currentTarget.style.color = "#fff")}
-              onMouseOut={(e) => (e.currentTarget.style.color = "#C7C4D8")}
+              onMouseOver={(e) => { if (location.pathname !== "/leaderboard") e.currentTarget.style.color = "#fff"; }}
+              onMouseOut={(e) => { if (location.pathname !== "/leaderboard") e.currentTarget.style.color = "#C7C4D8"; }}
             >
               <Trophy size={16} /> Leaderboard
             </Link>
-            
-            {/* Link Chat với Unread Badge */}
+
+            {/* Chat with badge */}
             <Link
               to="/chat"
               style={{
@@ -203,7 +192,7 @@ export default function LayoutClient() {
             </Link>
           </nav>
 
-          {/* Right Side Actions */}
+          {/* Right Side */}
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             {showInstructorPortal && (
               <Link
@@ -259,7 +248,6 @@ export default function LayoutClient() {
                   )}
                 </Link>
 
-                {/* ✅ Level Badge */}
                 <LevelBadge
                   level={levelInfo.level}
                   title={levelInfo.title}
@@ -314,18 +302,29 @@ export default function LayoutClient() {
         <Outlet />
       </main>
 
-      <footer
-        style={{
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          padding: "24px 0",
-          marginTop: 40,
-          textAlign: "center",
-          color: "#47464f",
-          fontSize: 13,
-        }}
-      >
-        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 24px" }}>
-          &copy; {new Date().getFullYear()} SmartReview LMS. All rights reserved.
+      <footer style={{
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        padding: "28px 0", marginTop: 48,
+        background: "rgba(15,15,26,0.6)", backdropFilter: "blur(12px)",
+      }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 24px", display: "flex", flexWrap: "wrap", gap: 20, alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 24, height: 24, borderRadius: 6, background: "linear-gradient(135deg,#6C63FF,#9B59B6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <GraduationCap size={13} color="#fff" />
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#47464f" }}>SmartReview LMS</span>
+          </div>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            {([["Trang chủ","/"],["Khóa học","/courses"],["Bảng xếp hạng","/leaderboard"],["Chat","/chat"]] as [string,string][]).map(([label,to]) => (
+              <Link key={to} to={to} style={{ fontSize: 12, color: "#47464f", textDecoration: "none", transition: "color .15s" }}
+                onMouseOver={e => (e.currentTarget.style.color = "#C7C4D8")}
+                onMouseOut={e => (e.currentTarget.style.color = "#47464f")}
+              >{label}</Link>
+            ))}
+          </div>
+          <span style={{ fontSize: 12, color: "#47464f" }}>
+            &copy; {new Date().getFullYear()} SmartReview LMS · All rights reserved
+          </span>
         </div>
       </footer>
 

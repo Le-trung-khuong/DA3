@@ -1,9 +1,9 @@
 /**
  * src/services/chatService.ts
  * Client chat operations (Firestore + Cloudinary upload)
- * Mở rộng: typing indicator, online presence, read receipts,
- *           reactions, reply, pin message, unreadCount increment,
- *           course community
+ * ✅ Đã sửa: deleteMessageByUser tự xác định role
+ * ✅ Đã thêm assertCanModerate cho pin/unpin
+ * ✅ Đã thêm markMessagesAsRead batch
  */
 
 import { db } from "../utils/config";
@@ -16,7 +16,7 @@ import {
   serverTimestamp,
   increment,
   getDoc,
-  getDocs, // ✅ ĐÃ THÊM getDocs
+  getDocs,
   setDoc,
   arrayUnion,
   arrayRemove,
@@ -40,9 +40,6 @@ export interface SendMessageData {
 
 // ─── Cloudinary upload ───────────────────────────────────────────────────────
 
-/**
- * Upload file lên Cloudinary, trả về URL và metadata
- */
 export async function uploadToCloudinary(file: File): Promise<{
   url: string;
   publicId: string;
@@ -77,7 +74,7 @@ export async function uploadToCloudinary(file: File): Promise<{
   };
 }
 
-// ─── Core message operations (giữ nguyên và bổ sung unreadCount) ──────────
+// ─── Core message operations ──────────────────────────────────────────────
 
 export async function sendMessageWithFile(
   roomId: string,
@@ -89,21 +86,18 @@ export async function sendMessageWithFile(
   const isImage = uploaded.resourceType === "image";
   const displayText = isImage ? "📷 Image" : "📎 File";
 
-  // Lấy danh sách participants trừ người gửi
   const participants = await getRoomParticipants(roomId);
   const otherUsers = participants.filter((id) => id !== userId);
 
   const batch = writeBatch(db);
   const roomRef = doc(db, "chat_rooms", roomId);
 
-  // Tăng unreadCount cho mỗi user khác
   otherUsers.forEach((uid) => {
     batch.update(roomRef, {
       [`unreadCount.${uid}`]: increment(1),
     });
   });
 
-  // Thêm tin nhắn
   const messagesRef = collection(db, "chat_rooms", roomId, "messages");
   const newMsgRef = doc(messagesRef);
   batch.set(newMsgRef, {
@@ -119,7 +113,6 @@ export async function sendMessageWithFile(
     readBy: [userId],
   });
 
-  // Cập nhật room info
   batch.update(roomRef, {
     lastMessage: isImage ? "📷 Image" : `📎 ${uploaded.originalName.slice(0, 30)}`,
     lastMessageAt: serverTimestamp(),
@@ -133,21 +126,18 @@ export async function sendMessageWithFile(
 export async function sendMessage(data: SendMessageData): Promise<void> {
   const { roomId, userId, userName, text } = data;
 
-  // Lấy danh sách participants trừ người gửi
   const participants = await getRoomParticipants(roomId);
   const otherUsers = participants.filter((id) => id !== userId);
 
   const batch = writeBatch(db);
   const roomRef = doc(db, "chat_rooms", roomId);
 
-  // Tăng unreadCount cho mỗi user khác
   otherUsers.forEach((uid) => {
     batch.update(roomRef, {
       [`unreadCount.${uid}`]: increment(1),
     });
   });
 
-  // Thêm tin nhắn
   const messagesRef = collection(db, "chat_rooms", roomId, "messages");
   const newMsgRef = doc(messagesRef);
   batch.set(newMsgRef, {
@@ -159,7 +149,6 @@ export async function sendMessage(data: SendMessageData): Promise<void> {
     readBy: [userId],
   });
 
-  // Cập nhật room info
   batch.update(roomRef, {
     lastMessage: text.trim().slice(0, 100),
     lastMessageAt: serverTimestamp(),
@@ -188,19 +177,29 @@ export async function reportMessage(
   await updateDoc(roomRef, { reportedCount: increment(1) });
 }
 
+// ✅ FIX: deleteMessageByUser tự xác định role, không nhận isAdmin từ client
 export async function deleteMessageByUser(
   roomId: string,
   messageId: string,
-  currentUserId: string,
-  isAdmin = false
+  currentUserId: string
 ): Promise<void> {
   const msgRef = doc(db, "chat_rooms", roomId, "messages", messageId);
   const msgSnap = await getDoc(msgRef);
   if (!msgSnap.exists()) throw new Error("Message not found");
   const msgData = msgSnap.data();
-  if (msgData.userId !== currentUserId && !isAdmin) {
+
+  // Tự xác định quyền của người gọi
+  const isOwner = msgData.userId === currentUserId;
+  let isAdmin = false;
+  if (!isOwner) {
+    const userSnap = await getDoc(doc(db, "users", currentUserId));
+    const role = userSnap.exists() ? userSnap.data().role : null;
+    isAdmin = role === "admin" || role === "moderator";
+  }
+  if (!isOwner && !isAdmin) {
     throw new Error("You can only delete your own messages");
   }
+
   await deleteDoc(msgRef);
   const roomRef = doc(db, "chat_rooms", roomId);
   await updateDoc(roomRef, { messageCount: increment(-1) });
@@ -224,12 +223,8 @@ export async function updateMessage(
   });
 }
 
-// ─── NEW: Room participants management ──────────────────────────────────────
+// ─── Room participants management ──────────────────────────────────────────
 
-/**
- * Thêm userId vào danh sách participants của room (nếu chưa có)
- * Gọi khi user vào phòng chat
- */
 export async function joinRoom(roomId: string, userId: string): Promise<void> {
   const roomRef = doc(db, "chat_rooms", roomId);
   await updateDoc(roomRef, {
@@ -237,10 +232,6 @@ export async function joinRoom(roomId: string, userId: string): Promise<void> {
   });
 }
 
-/**
- * Xóa userId khỏi danh sách participants của room
- * Gọi khi user rời phòng (unmount)
- */
 export async function leaveRoom(roomId: string, userId: string): Promise<void> {
   const roomRef = doc(db, "chat_rooms", roomId);
   await updateDoc(roomRef, {
@@ -248,9 +239,6 @@ export async function leaveRoom(roomId: string, userId: string): Promise<void> {
   });
 }
 
-/**
- * Lấy danh sách participants của room
- */
 export async function getRoomParticipants(roomId: string): Promise<string[]> {
   const roomRef = doc(db, "chat_rooms", roomId);
   const snap = await getDoc(roomRef);
@@ -258,12 +246,8 @@ export async function getRoomParticipants(roomId: string): Promise<string[]> {
   return snap.data().participants || [];
 }
 
-// ─── NEW: Typing indicator ───────────────────────────────────────────────────
+// ─── Typing indicator ───────────────────────────────────────────────────────
 
-/**
- * Cập nhật trạng thái đang nhập vào subcollection typing của phòng.
- * Document ID = userId để mỗi user chỉ có 1 doc.
- */
 export async function setTypingStatus(
   roomId: string,
   userId: string,
@@ -279,31 +263,30 @@ export async function setTypingStatus(
   });
 }
 
-/**
- * Lắng nghe realtime danh sách người đang nhập trong phòng.
- * Tự lọc bỏ userId của bản thân và các doc isTyping = false.
- */
+// ✅ FIX: thêm lọc stale typing
 export function onTypingStatus(
   roomId: string,
   currentUserId: string,
   callback: (typingUsers: TypingStatus[]) => void
 ): Unsubscribe {
+  const TYPING_STALE_MS = 5000;
   const typingCol = collection(db, "chat_rooms", roomId, "typing");
   const q = query(typingCol, where("isTyping", "==", true));
-
   return onSnapshot(q, (snap) => {
+    const now = Date.now();
     const typingUsers: TypingStatus[] = snap.docs
       .map((d) => d.data() as TypingStatus)
-      .filter((t) => t.userId !== currentUserId);
+      .filter((t) => t.userId !== currentUserId)
+      .filter((t) => {
+        const ts = t.timestamp?.toDate?.().getTime();
+        return ts ? now - ts < TYPING_STALE_MS : false;
+      });
     callback(typingUsers);
   });
 }
 
-// ─── NEW: Read receipts ──────────────────────────────────────────────────────
+// ─── Read receipts ──────────────────────────────────────────────────────────
 
-/**
- * Đánh dấu 1 tin nhắn đã đọc (thêm userId vào readBy array).
- */
 export async function markMessageAsRead(
   roomId: string,
   messageId: string,
@@ -315,9 +298,21 @@ export async function markMessageAsRead(
   });
 }
 
-/**
- * Reset unreadCount của userId trong room về 0
- */
+// ✅ NEW: batch mark read
+export async function markMessagesAsRead(
+  roomId: string,
+  messageIds: string[],
+  userId: string
+): Promise<void> {
+  if (messageIds.length === 0) return;
+  const batch = writeBatch(db);
+  messageIds.forEach((id) => {
+    const msgRef = doc(db, "chat_rooms", roomId, "messages", id);
+    batch.update(msgRef, { readBy: arrayUnion(userId) });
+  });
+  await batch.commit();
+}
+
 export async function markRoomAsRead(
   roomId: string,
   userId: string
@@ -328,12 +323,8 @@ export async function markRoomAsRead(
   });
 }
 
-// ─── NEW: Reactions ──────────────────────────────────────────────────────────
+// ─── Reactions ──────────────────────────────────────────────────────────────
 
-/**
- * Thêm reaction emoji vào tin nhắn.
- * Nếu user đã react emoji đó rồi → tự động remove (toggle).
- */
 export async function toggleReaction(
   roomId: string,
   messageId: string,
@@ -355,11 +346,8 @@ export async function toggleReaction(
   });
 }
 
-// ─── NEW: Reply ──────────────────────────────────────────────────────────────
+// ─── Reply ──────────────────────────────────────────────────────────────────
 
-/**
- * Gửi tin nhắn trả lời, kèm snapshot nội dung tin gốc.
- */
 export async function replyMessage(
   roomId: string,
   userId: string,
@@ -369,21 +357,18 @@ export async function replyMessage(
   replyToText: string,
   replyToUser: string
 ): Promise<void> {
-  // Lấy danh sách participants trừ người gửi
   const participants = await getRoomParticipants(roomId);
   const otherUsers = participants.filter((id) => id !== userId);
 
   const batch = writeBatch(db);
   const roomRef = doc(db, "chat_rooms", roomId);
 
-  // Tăng unreadCount cho mỗi user khác
   otherUsers.forEach((uid) => {
     batch.update(roomRef, {
       [`unreadCount.${uid}`]: increment(1),
     });
   });
 
-  // Thêm tin nhắn reply
   const messagesRef = collection(db, "chat_rooms", roomId, "messages");
   const newMsgRef = doc(messagesRef);
   batch.set(newMsgRef, {
@@ -398,7 +383,6 @@ export async function replyMessage(
     replyToUser,
   });
 
-  // Cập nhật room info
   batch.update(roomRef, {
     lastMessage: text.trim().slice(0, 100),
     lastMessageAt: serverTimestamp(),
@@ -409,16 +393,23 @@ export async function replyMessage(
   await batch.commit();
 }
 
-// ─── NEW: Pin message ────────────────────────────────────────────────────────
+// ─── Pin / Unpin (có kiểm tra quyền) ──────────────────────────────────────
 
-/**
- * Ghim tin nhắn lên đầu phòng (chỉ admin/moderator).
- */
+async function assertCanModerate(userId: string): Promise<void> {
+  const userSnap = await getDoc(doc(db, "users", userId));
+  const role = userSnap.exists() ? userSnap.data().role : null;
+  if (role !== "admin" && role !== "moderator") {
+    throw new Error("Only admins or moderators can perform this action");
+  }
+}
+
+// ✅ FIX: thêm kiểm tra quyền trước khi pin
 export async function pinMessage(
   roomId: string,
   messageId: string,
   userId: string
 ): Promise<void> {
+  await assertCanModerate(userId);
   const msgRef = doc(db, "chat_rooms", roomId, "messages", messageId);
   await updateDoc(msgRef, {
     isPinned: true,
@@ -429,25 +420,21 @@ export async function pinMessage(
   await updateDoc(roomRef, { pinnedMessageId: messageId });
 }
 
+// ✅ FIX: thêm kiểm tra quyền, thêm tham số userId
 export async function unpinMessage(
   roomId: string,
-  messageId: string
+  messageId: string,
+  userId: string
 ): Promise<void> {
+  await assertCanModerate(userId);
   const msgRef = doc(db, "chat_rooms", roomId, "messages", messageId);
-  await updateDoc(msgRef, {
-    isPinned: false,
-    pinnedBy: null,
-    pinnedAt: null,
-  });
+  await updateDoc(msgRef, { isPinned: false, pinnedBy: null, pinnedAt: null });
   const roomRef = doc(db, "chat_rooms", roomId);
   await updateDoc(roomRef, { pinnedMessageId: null });
 }
 
-// ─── NEW: Presence ───────────────────────────────────────────────────────────
+// ─── Presence ──────────────────────────────────────────────────────────────
 
-/**
- * Cập nhật trạng thái online của user vào collection `presence`.
- */
 export async function updateUserPresence(
   userId: string,
   status: PresenceStatus["status"]
@@ -460,9 +447,6 @@ export async function updateUserPresence(
   );
 }
 
-/**
- * Lắng nghe presence của 1 userId.
- */
 export function onUserPresence(
   userId: string,
   callback: (presence: PresenceStatus | null) => void
@@ -473,30 +457,22 @@ export function onUserPresence(
   });
 }
 
-// ─── NEW: Course Community ───────────────────────────────────────────────────
+// ─── Course Community ──────────────────────────────────────────────────────
 
-/**
- * Tạo một course community room.
- * Chỉ được gọi khi course được publish và enableCommunity === true.
- * Đảm bảo không tạo trùng lặp.
- */
 export async function createCourseCommunity(
   courseId: string,
   instructorId: string,
   courseName: string,
   courseDescription?: string
 ): Promise<string> {
-  // Kiểm tra xem room đã tồn tại chưa
   const roomsRef = collection(db, "chat_rooms");
   const q = query(roomsRef, where("courseId", "==", courseId));
   const snap = await getDocs(q);
 
   if (!snap.empty) {
-    // Đã có room, trả về id
     return snap.docs[0].id;
   }
 
-  // Tạo room mới
   const roomName = `${courseName} Community`;
   const roomDescription = courseDescription || `Community for course: ${courseName}`;
 
@@ -514,7 +490,7 @@ export async function createCourseCommunity(
     isPrivate: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    participants: [instructorId], // instructor tự động tham gia
+    participants: [instructorId],
     pinned: false,
     lastMessage: "Welcome to the community!",
     lastMessageAt: serverTimestamp(),
@@ -525,9 +501,6 @@ export async function createCourseCommunity(
   return docRef.id;
 }
 
-/**
- * Lấy roomId của course community (nếu có)
- */
 export async function getCourseCommunityRoomId(courseId: string): Promise<string | null> {
   const roomsRef = collection(db, "chat_rooms");
   const q = query(roomsRef, where("courseId", "==", courseId));
@@ -536,15 +509,11 @@ export async function getCourseCommunityRoomId(courseId: string): Promise<string
   return snap.docs[0].id;
 }
 
-/**
- * Kiểm tra xem user có quyền truy cập vào một course community không
- */
 export async function canAccessCommunity(
   roomId: string,
   userId: string,
   userRole?: "admin" | "moderator" | "instructor" | "student"
 ): Promise<boolean> {
-  // Admin luôn có quyền
   if (userRole === "admin") return true;
 
   const roomRef = doc(db, "chat_rooms", roomId);
@@ -552,15 +521,10 @@ export async function canAccessCommunity(
   if (!roomSnap.exists()) return false;
   const room = roomSnap.data();
 
-  // Nếu không phải private room, cho phép (public)
   if (!room.isPrivate) return true;
 
-  // Nếu là private course community
   if (room.type === "course" && room.courseId) {
-    // Instructor của course có quyền
     if (room.instructorId === userId) return true;
-
-    // Kiểm tra enrollment
     return checkUserEnrollment(userId, room.courseId);
   }
 

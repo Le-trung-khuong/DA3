@@ -1,6 +1,6 @@
 // src/services/dailyGoalService.ts
 import { db } from '../utils/config';
-import { doc, setDoc, getDoc, updateDoc, increment, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, collection, setDoc, getDoc, updateDoc, increment, runTransaction, serverTimestamp } from 'firebase/firestore';
 
 export interface DailyTask {
   id: string;
@@ -38,6 +38,8 @@ export const completeTask = async (
 ): Promise<{ xpEarned: number }> => {
   const ref = doc(db, 'dailyProgress', `${userId}_${date}`);
   const userRef = doc(db, 'users', userId);
+  // Tạo sẵn ref cho xp_logs (không tốn round-trip mạng) để ghi trong cùng transaction
+  const xpLogRef = doc(collection(db, 'xp_logs'));
 
   return runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref);
@@ -64,6 +66,19 @@ export const completeTask = async (
     transaction.update(userRef, {
       totalXP: increment(task.xpReward),
       updatedAt: serverTimestamp(),
+    });
+
+    // ✅ FIX: Ghi vào xp_logs để Daily Task XP được tính vào DAILY_XP_LIMIT
+    // (getTodayXP trong xpService.ts chỉ đọc từ xp_logs) và xuất hiện đúng
+    // trong analytics heatmap. Trước đây totalXP được cộng thẳng, không qua
+    // xp_logs, nên XP này nằm ngoài mọi giới hạn/thống kê dựa trên xp_logs.
+    transaction.set(xpLogRef, {
+      userId,
+      amount: task.xpReward,
+      reason: `Daily task: ${task.text}`,
+      activityType: 'daily_task',
+      adminNote: null,
+      timestamp: serverTimestamp(),
     });
 
     return { xpEarned: task.xpReward };
